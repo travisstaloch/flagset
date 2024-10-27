@@ -107,13 +107,24 @@ pub const Flag = struct {
     }
 };
 
+/// see src/tests.zig test "parseFn" for a good example
 pub fn ParseFn(comptime T: type) type {
     return fn (
-        ptr: *T,
+        /// parse result pointer.  should be written to on parse success.
+        result_ptr: *T,
+        /// the current, trimmed command line argument to be parsed.
+        /// when non-empty, should be parsed into a T.
+        /// when empty, `args_iter_ptr` should be used to get the next arg to be parsed.
+        /// on named arguments, contains everything after the '='.
+        /// on positional args, will always be non-empty.
         value_str: []const u8,
-        iter_ptr: anytype,
+        /// a pointer to the command line argument iterator.
+        /// should be used to get the next arg when value_str is empty.
+        /// should be advanced on parse success by calling .next().
+        /// may be peeked with flagset.iterPeek(args_iter_ptr).
+        args_iter_ptr: anytype,
         parsed_flags: ParsedValueFlags,
-    ) Error!void;
+    ) ParseError!void;
 }
 
 /// used to verify the signature of a parseFn
@@ -126,18 +137,28 @@ pub inline fn checkParseFn(comptime T: type, comptime parseFn: anytype) *const a
     }
 }
 
+fn validateFlag(flag: Flag, i: usize, fields: []const std.builtin.Type.StructField) void {
+    // check for duplicate names
+    for (fields, 0..) |f, j| {
+        if (mem.eql(u8, flag.name, f.name)) duplicateNameError(flag, i, j);
+    }
+
+    if (mem.indexOfScalar(u8, flag.name, ' ') != null)
+        invalidFlagError(flag, i, "spaces in name");
+    if (mem.eql(u8, flag.name, "help"))
+        invalidFlagError(flag, i, "invalid name");
+
+    const info = @typeInfo(flag.type);
+    if (flag.options.int_from_utf8 and info != .int)
+        invalidFlagError(flag, i, "options.int_from_utf8 requires integer type");
+}
+
 /// a struct with field names and types from 'flags'
 pub inline fn Parsed(comptime flags: []const Flag) type {
     comptime {
         var fields: []const std.builtin.Type.StructField = &.{};
         for (flags, 0..) |flag, i| {
-            // check for duplicate names
-            for (fields, 0..) |f, j| {
-                if (mem.eql(u8, flag.name, f.name)) duplicateNameError(flag, i, j);
-            }
-            if (mem.indexOfScalar(u8, flag.name, ' ') != null)
-                invalidNameError(flag, i, "spaces in name");
-            // TODO when flag.int_from_utf8, check type info is .int
+            validateFlag(flag, i, fields);
             fields = fields ++ .{.{
                 .type = flag.type,
                 .name = flag.name,
@@ -163,12 +184,7 @@ pub fn ParsedPtrs(
     comptime {
         var fields: []const std.builtin.Type.StructField = &.{};
         for (flags, 0..) |flag, i| {
-            // check for duplicate names
-            for (fields, 0..) |f, j| {
-                if (mem.eql(u8, flag.name, f.name)) duplicateNameError(flag, i, j);
-            }
-            if (mem.indexOfScalar(u8, flag.name, ' ') != null)
-                invalidNameError(flag, i, "spaces in name");
+            validateFlag(flag, i, fields);
             const T = ?if (mutability == .@"const") *const flag.type else *flag.type;
             const default: T = null;
             const default_ptr: ?*const anyopaque = @ptrCast(&default);
@@ -197,30 +213,33 @@ pub fn ParseResult(comptime flags: []const Flag, comptime RestArgs: type) type {
     };
 }
 
-pub const Iter = struct {
+pub const ArgsIter = struct {
     slice: []const []const u8,
 
-    pub fn init(slice: []const []const u8) Iter {
+    pub fn init(slice: []const []const u8) ArgsIter {
         return .{ .slice = slice };
     }
 
-    pub fn next(iter: *Iter) ?[]const u8 {
+    pub fn next(iter: *ArgsIter) ?[]const u8 {
         if (iter.slice.len == 0) return null;
         defer iter.slice = iter.slice[1..];
         return iter.slice[0];
     }
 };
 
-pub fn iterPeek(iter_ptr: anytype) ?[]const u8 {
-    var iter = iter_ptr.*;
+pub fn iterPeek(args_iter_ptr: anytype) ?[]const u8 {
+    var iter = args_iter_ptr.*;
     return iter.next();
 }
 
-pub const Error = error{
+pub const ParseError = error{
+    /// causes parsing to stop
     NonFlagArgument,
-    ParseFailure,
+    /// an unexpected value was found
+    UnexpectedValue,
     DuplicateFlag,
     MissingRequiredFlag,
+    /// -h or --help was found
     HelpRequested,
 } ||
     std.fmt.ParseIntError;
@@ -240,8 +259,8 @@ pub fn parseFromSlice(
     comptime flags: []const Flag,
     args: []const []const u8,
     parse_options: ParseOptions(flags),
-) Error!ParseResult(flags, []const []const u8) {
-    const result = try parseFromIter(flags, Iter.init(args), parse_options);
+) ParseError!ParseResult(flags, []const []const u8) {
+    const result = try parseFromIter(flags, ArgsIter.init(args), parse_options);
     return .{ .parsed = result.parsed, .unparsed_args = result.unparsed_args.slice };
 }
 
@@ -249,7 +268,7 @@ pub fn parseFromIter(
     comptime flags: []const Flag,
     args_iter: anytype,
     parse_options: ParseOptions(flags),
-) Error!ParseResult(flags, @TypeOf(args_iter)) {
+) ParseError!ParseResult(flags, @TypeOf(args_iter)) {
     if (flags.len == 0) return .{ .parsed = undefined, .unparsed_args = args_iter };
 
     var args_iter_mut = args_iter;
@@ -308,7 +327,9 @@ pub fn parseFromIter(
             for (flags) |flag| {
                 if (flag.options.short) |s| {
                     if (shorts[s] != short_sentinel)
-                        invalidNameError(flag, i, "duplicate short name '" ++ [_]u8{s} ++ "' in flag");
+                        invalidFlagError(flag, i, "duplicate short '" ++ [_]u8{s} ++ "' in flag");
+                    if (s == 'h')
+                        invalidFlagError(flag, i, "invalid short '" ++ [_]u8{s} ++ "' in flag");
                     shorts[s] = i;
                 }
                 i += 1;
@@ -437,7 +458,9 @@ pub fn parseFromIter(
 }
 
 pub const ParsedValueFlags = packed struct(u8) {
+    /// true when flag name starts with 'no-'
     negated: bool,
+    /// always matches Flag.Options.int_from_utf8
     int_from_utf8: bool,
     _padding: u6 = undefined,
 };
@@ -469,12 +492,12 @@ fn parseBool(arg: []const u8) ?bool {
 }
 
 fn parseValue(
-    ptr: anytype,
+    result_ptr: anytype,
     value_str: []const u8,
     arg_iter_ptr: anytype,
     parsed_flags: ParsedValueFlags,
-) Error!void {
-    const T = @TypeOf(ptr.*);
+) ParseError!void {
+    const T = @TypeOf(result_ptr.*);
     const info = @typeInfo(T);
     debug("parseValue({s}) value_str '{s}' negated {}", .{ @tagName(info), value_str, parsed_flags.negated });
     switch (info) {
@@ -483,60 +506,56 @@ fn parseValue(
                 debug("bool next '{s}'", .{next});
                 if (parseBool(next)) |b| {
                     _ = arg_iter_ptr.next();
-                    ptr.* = b;
+                    result_ptr.* = b;
                     return;
                 }
             }
-            ptr.* = !parsed_flags.negated;
+            result_ptr.* = !parsed_flags.negated;
         } else if (parsed_flags.negated)
-            return error.ParseFailure
+            return error.NonFlagArgument
         else {
-            ptr.* = if (parseBool(value_str)) |b|
+            result_ptr.* = if (parseBool(value_str)) |b|
                 b
             else
-                return error.ParseFailure;
+                return error.UnexpectedValue;
         },
 
         .int => if (value_str.len > 0) {
-            ptr.* = try parseInt(T, value_str, parsed_flags);
-        } else if (iterPeek(arg_iter_ptr)) |next| {
-            ptr.* = try parseInt(T, next, parsed_flags);
-            _ = arg_iter_ptr.next();
-        } else return error.ParseFailure,
+            result_ptr.* = try parseInt(T, value_str, parsed_flags);
+        } else if (arg_iter_ptr.next()) |next| {
+            result_ptr.* = try parseInt(T, next, parsed_flags);
+        } else return error.UnexpectedValue,
 
         .float => if (value_str.len > 0) {
-            ptr.* = try std.fmt.parseFloat(T, value_str);
-        } else if (iterPeek(arg_iter_ptr)) |next| {
-            ptr.* = try std.fmt.parseFloat(T, next);
-            _ = arg_iter_ptr.next();
-        } else return error.ParseFailure,
+            result_ptr.* = try std.fmt.parseFloat(T, value_str);
+        } else if (arg_iter_ptr.next()) |next| {
+            result_ptr.* = try std.fmt.parseFloat(T, next);
+        } else return error.UnexpectedValue,
 
         .@"enum" => if (value_str.len > 0) {
-            ptr.* = std.meta.stringToEnum(T, value_str) orelse
-                return error.ParseFailure;
-        } else if (iterPeek(arg_iter_ptr)) |next| {
-            ptr.* = std.meta.stringToEnum(T, next) orelse
-                return error.ParseFailure;
-            _ = arg_iter_ptr.next();
-        } else return error.ParseFailure,
+            result_ptr.* = std.meta.stringToEnum(T, value_str) orelse
+                return error.UnexpectedValue;
+        } else if (arg_iter_ptr.next()) |next| {
+            result_ptr.* = std.meta.stringToEnum(T, next) orelse
+                return error.UnexpectedValue;
+        } else return error.UnexpectedValue,
 
         .pointer => if (comptime isZigString(T)) {
             if (value_str.len > 0) {
-                ptr.* = value_str;
-            } else if (iterPeek(arg_iter_ptr)) |next| {
-                ptr.* = next;
-                _ = arg_iter_ptr.next();
+                result_ptr.* = value_str;
+            } else if (arg_iter_ptr.next()) |next| {
+                result_ptr.* = next;
             } else {
-                return error.ParseFailure;
+                return error.UnexpectedValue;
             }
         } else unsupportedType(T),
 
         .optional => |x| if (parsed_flags.negated) {
-            ptr.* = null;
+            result_ptr.* = null;
         } else {
             var val: x.child = undefined;
             try parseValue(&val, value_str, arg_iter_ptr, parsed_flags);
-            ptr.* = val;
+            result_ptr.* = val;
         },
 
         else => unsupportedType(T),
@@ -717,7 +736,7 @@ fn duplicateNameError(flag: Flag, i: usize, j: usize) noreturn {
     @compileError(std.fmt.comptimePrint("duplicate names '" ++ flag.name ++ "' at indices {} and {}.", .{ j, i }));
 }
 
-fn invalidNameError(flag: Flag, i: usize, reason: []const u8) noreturn {
+fn invalidFlagError(flag: Flag, i: usize, reason: []const u8) noreturn {
     @compileError(std.fmt.comptimePrint("{s} '" ++ flag.name ++ "' at index {}", .{ reason, i }));
 }
 

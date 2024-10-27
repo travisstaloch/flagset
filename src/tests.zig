@@ -90,10 +90,14 @@ test "parse bool" {
     try expectParsed(&bool_flag, testArgs(&.{ "-bool", "false" }), .{ .bool = false });
     try expectParsed(&bool_flag, testArgs(&.{ "-bool", "true" }), .{ .bool = true });
 
-    try testing.expectError(
-        error.ParseFailure,
-        flagset.parseFromSlice(&bool_flag, testArgs(&.{"-no-bool=true"}), .{}),
+    // non flag
+    const result = try flagset.parseFromSlice(
+        &.{.init(bool, "bool", .{ .default_value = &true })},
+        testArgs(&.{"-no-bool=true"}),
+        .{},
     );
+    try testing.expectEqual(1, result.unparsed_args.len);
+
     // don't match flag names without a leading dash
     try testing.expectError(
         error.MissingRequiredFlag,
@@ -350,16 +354,17 @@ test "short names" {
     try testing.expectEqualStrings("server.com", result.parsed.host);
     try testing.expectEqual(2222, result.parsed.port);
 
+    // should fail to recognize shorts with double dash and stop parsing
     try testing.expectError(
         error.MissingRequiredFlag,
         flagset.parseFromSlice(&flags, &.{ "ssh", "server.com", "--p", "2222" }, .{}),
     );
-
     const result3 = try flagset.parseFromSlice(
         &.{.init(u8, "int", .{ .short = 'i', .default_value = &@as(u8, 0) })},
         testArgs(&.{ "--i", "2222" }),
         .{},
     );
+    try testing.expectEqual(0, result3.parsed.int);
     try testing.expectEqual(2, result3.unparsed_args.len);
 }
 
@@ -379,16 +384,19 @@ test "parseFn" {
         .init(std.net.Address, "ip", .{
             .parseFn = flagset.checkParseFn(std.net.Address, &struct {
                 fn parseFn(
-                    ptr: *std.net.Address,
-                    arg: []const u8,
-                    iter_ptr: anytype,
+                    result_ptr: *std.net.Address,
+                    value_str: []const u8,
+                    args_iter_ptr: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.Error!void {
-                    if (arg.len != 0) return error.ParseFailure;
-                    const next = flagset.iterPeek(iter_ptr) orelse
-                        return error.ParseFailure;
-                    ptr.* = std.net.Address.parseIp(next, 0) catch
-                        return error.ParseFailure;
+                ) flagset.ParseError!void {
+                    const to_parse = if (value_str.len != 0)
+                        value_str
+                    else if (args_iter_ptr.next()) |next_arg|
+                        next_arg
+                    else
+                        return error.UnexpectedValue;
+                    result_ptr.* = std.net.Address.parseIp(to_parse, 0) catch
+                        return error.UnexpectedValue;
                 }
             }.parseFn),
         }),
@@ -404,13 +412,13 @@ test "parseFn" {
             .kind = .positional,
             .parseFn = flagset.checkParseFn(std.net.Address, &struct {
                 fn parseFn(
-                    ptr: *std.net.Address,
-                    arg: []const u8,
+                    result_ptr: *std.net.Address,
+                    value_str: []const u8,
                     _: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.Error!void {
-                    ptr.* = std.net.Address.parseIp(arg, 0) catch
-                        return error.ParseFailure;
+                ) flagset.ParseError!void {
+                    result_ptr.* = std.net.Address.parseIp(value_str, 0) catch
+                        return error.UnexpectedValue;
                 }
             }.parseFn),
         }),
@@ -427,12 +435,12 @@ test "parseFn misc" {
             .kind = .positional,
             .parseFn = flagset.checkParseFn(T, &struct {
                 fn parseFn(
-                    ptr: *T,
+                    result_ptr: *T,
                     _: []const u8,
                     _: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.Error!void {
-                    ptr.* = 42;
+                ) flagset.ParseError!void {
+                    result_ptr.* = 42;
                 }
             }.parseFn),
         }),
@@ -450,7 +458,7 @@ test "parseFn misc" {
                     _: []const u8,
                     _: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.Error!void {
+                ) flagset.ParseError!void {
                     return error.NonFlagArgument;
                 }
             }.parseFn),
