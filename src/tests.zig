@@ -378,8 +378,10 @@ test "parseFn" {
                     _: flagset.ParsedValueFlags,
                 ) flagset.Error!void {
                     if (arg.len != 0) return error.ParseFailure;
-                    const next = iter_ptr.next() orelse return error.ParseFailure;
-                    ptr.* = std.net.Address.parseIp(next, 0) catch return error.ParseFailure;
+                    const next = flagset.iterPeek(iter_ptr) orelse
+                        return error.ParseFailure;
+                    ptr.* = std.net.Address.parseIp(next, 0) catch
+                        return error.ParseFailure;
                 }
             }.parseFn),
         }),

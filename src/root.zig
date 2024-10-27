@@ -211,7 +211,7 @@ pub const Iter = struct {
     }
 };
 
-fn iterPeek(iter_ptr: anytype) ?[]const u8 {
+pub fn iterPeek(iter_ptr: anytype) ?[]const u8 {
     var iter = iter_ptr.*;
     return iter.next();
 }
