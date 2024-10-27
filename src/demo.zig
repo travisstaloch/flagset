@@ -23,5 +23,5 @@ pub fn main() !void {
         },
         else => return e,
     };
-    std.debug.print("parsed: {}\n", .{flagset.fmtParsed(&flags, &result.parsed, .{})});
+    std.debug.print("parsed: {}\n", .{flagset.fmtParsed(&flags, result.parsed, .{})});
 }

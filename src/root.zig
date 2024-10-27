@@ -155,8 +155,11 @@ pub inline fn Parsed(comptime flags: []const Flag) type {
     }
 }
 
-/// a struct similar to Parsed() where each field is a *T instead of T
-pub fn ParsedPtrs(comptime flags: []const Flag, comptime mutability: enum { @"const", mut }) type {
+/// a struct similar to Parsed() where each field is a `?*T = null` instead of T
+pub fn ParsedPtrs(
+    comptime flags: []const Flag,
+    comptime mutability: enum { @"const", mut },
+) type {
     comptime {
         var fields: []const std.builtin.Type.StructField = &.{};
         for (flags, 0..) |flag, i| {
@@ -164,11 +167,15 @@ pub fn ParsedPtrs(comptime flags: []const Flag, comptime mutability: enum { @"co
             for (fields, 0..) |f, j| {
                 if (mem.eql(u8, flag.name, f.name)) duplicateNameError(flag, i, j);
             }
-            if (mem.indexOfScalar(u8, flag.name, ' ') != null) invalidNameError(flag, i, "spaces in name");
+            if (mem.indexOfScalar(u8, flag.name, ' ') != null)
+                invalidNameError(flag, i, "spaces in name");
+            const T = ?if (mutability == .@"const") *const flag.type else *flag.type;
+            const default: T = null;
+            const default_ptr: ?*const anyopaque = @ptrCast(&default);
             fields = fields ++ .{.{
-                .type = if (mutability == .@"const") *const flag.type else *flag.type,
+                .type = T,
                 .name = flag.name,
-                .default_value = null,
+                .default_value = default_ptr,
                 .is_comptime = false,
                 .alignment = 0,
             }};
@@ -217,62 +224,42 @@ pub const Error = error{
 } ||
     std.fmt.ParseIntError;
 
-pub const ParseOptions = packed struct(u8) {
-    skip_first_arg: bool = true,
-    _padding: u7 = undefined,
-};
+pub fn ParseOptions(comptime flags: []const Flag) type {
+    return struct {
+        flags: Flags = .{},
+        ptrs: ParsedPtrs(flags, .mut) = .{},
+        const Flags = packed struct(u8) {
+            skip_first_arg: bool = true,
+            _padding: u7 = undefined,
+        };
+    };
+}
 
 pub fn parseFromSlice(
     comptime flags: []const Flag,
     args: []const []const u8,
-    parse_options: ParseOptions,
+    parse_options: ParseOptions(flags),
 ) Error!ParseResult(flags, []const []const u8) {
     const result = try parseFromIter(flags, Iter.init(args), parse_options);
     return .{ .parsed = result.parsed, .unparsed_args = result.unparsed_args.slice };
 }
 
-pub fn parseFromSliceIntoPtrs(
-    comptime flags: []const Flag,
-    args: []const []const u8,
-    ptrs: ParsedPtrs(flags, .mut),
-    parse_options: ParseOptions,
-) Error![]const []const u8 {
-    const iter = try parseFromIterIntoPtrs(flags, Iter.init(args), ptrs, parse_options);
-    return iter.slice;
-}
-
 pub fn parseFromIter(
     comptime flags: []const Flag,
-    iter: anytype,
-    parse_options: ParseOptions,
-) Error!ParseResult(flags, @TypeOf(iter)) {
-    const P = Parsed(flags);
-    const pinfo = @typeInfo(P);
-    var parsed: P = undefined;
-    var ptrs: ParsedPtrs(flags, .mut) = undefined;
-    inline for (pinfo.@"struct".fields) |f| {
-        @field(ptrs, f.name) = &@field(parsed, f.name);
-    }
-    const rest_iter = try parseFromIterIntoPtrs(flags, iter, ptrs, parse_options);
-    return .{ .parsed = parsed, .unparsed_args = rest_iter };
-}
-
-pub fn parseFromIterIntoPtrs(
-    comptime flags: []const Flag,
     args_iter: anytype,
-    ptrs: ParsedPtrs(flags, .mut),
-    parse_options: ParseOptions,
-) Error!@TypeOf(args_iter) {
-    if (flags.len == 0) return args_iter;
+    parse_options: ParseOptions(flags),
+) Error!ParseResult(flags, @TypeOf(args_iter)) {
+    if (flags.len == 0) return .{ .parsed = undefined, .unparsed_args = args_iter };
 
     var args_iter_mut = args_iter;
-    if (parse_options.skip_first_arg) _ = args_iter_mut.next();
+    if (parse_options.flags.skip_first_arg) _ = args_iter_mut.next();
     const P = Parsed(flags);
     const FieldEnum = std.meta.FieldEnum(P);
     const pinfo = @typeInfo(P);
     if (@hasField(@TypeOf(args_iter), "slice"))
         debug("parseIntoPtrs({s}) field names {s}", .{ args_iter_mut.slice, std.meta.fieldNames(P) });
 
+    var parsed: P = undefined;
     var seen_flags = std.enums.EnumSet(FieldEnum).initEmpty();
     var args_iter_prev = args_iter_mut;
     args: while (args_iter_mut.next()) |arg| : (args_iter_prev = args_iter_mut) {
@@ -348,21 +335,22 @@ pub fn parseFromIterIntoPtrs(
                 inline else => |inline_fe| {
                     const flag = flags[@intFromEnum(inline_fe)];
                     parsed_flags.int_from_utf8 = flag.options.int_from_utf8;
-                    if (comptime flag.parseFn()) |parseFn| try parseFn(
-                        @field(ptrs, @tagName(inline_fe)),
-                        value,
-                        &args_iter_mut,
-                        parsed_flags,
-                    ) else try parseValue(
-                        @field(ptrs, @tagName(inline_fe)),
-                        value,
-                        &args_iter_mut,
-                        parsed_flags,
-                    );
+
+                    const name = @tagName(inline_fe);
+                    const ptr = if (@field(parse_options.ptrs, name)) |ptr|
+                        ptr
+                    else
+                        &@field(parsed, name);
+
+                    if (comptime flag.parseFn()) |parseFn|
+                        try parseFn(ptr, value, &args_iter_mut, parsed_flags)
+                    else
+                        try parseValue(ptr, value, &args_iter_mut, parsed_flags);
+
+                    seen_flags.insert(field_enum);
+                    continue :args;
                 },
             }
-            seen_flags.insert(field_enum);
-            continue :args;
         }
 
         // parse positionals
@@ -375,17 +363,18 @@ pub fn parseFromIterIntoPtrs(
                     if (flag.options.kind == .positional) {
                         debug("positional match for arg '{s}'. flag '{s}'", .{ arg, @tagName(missing_flag) });
                         parsed_flags.int_from_utf8 = flag.options.int_from_utf8;
-                        if (comptime flag.parseFn()) |parseFn| try parseFn(
-                            @field(ptrs, @tagName(inline_fe)),
-                            arg,
-                            &args_iter_mut,
-                            parsed_flags,
-                        ) else try parseValue(
-                            @field(ptrs, @tagName(inline_fe)),
-                            arg,
-                            &args_iter_mut,
-                            parsed_flags,
-                        );
+
+                        const name = @tagName(inline_fe);
+                        const ptr = if (@field(parse_options.ptrs, name)) |ptr|
+                            ptr
+                        else
+                            &@field(parsed, name);
+
+                        if (comptime flag.parseFn()) |parseFn|
+                            try parseFn(ptr, arg, &args_iter_mut, parsed_flags)
+                        else
+                            try parseValue(ptr, arg, &args_iter_mut, parsed_flags);
+
                         seen_flags.insert(missing_flag);
                         continue :args;
                     }
@@ -404,7 +393,12 @@ pub fn parseFromIterIntoPtrs(
             inline else => |inline_fe| {
                 const flag = flags[@intFromEnum(inline_fe)];
                 if (flag.options.default_value) |default| {
-                    const ptr = @field(ptrs, flag.name);
+                    const name = @tagName(inline_fe);
+                    const ptr = if (@field(parse_options.ptrs, name)) |ptr|
+                        ptr
+                    else
+                        &@field(parsed, name);
+
                     ptr.* = @as(*const flag.type, @alignCast(@ptrCast(default))).*;
                     seen_flags.insert(missing_flag);
                 } else {
@@ -419,7 +413,7 @@ pub fn parseFromIterIntoPtrs(
         return error.MissingRequiredFlag;
     }
 
-    return args_iter_mut;
+    return .{ .parsed = parsed, .unparsed_args = args_iter_mut };
 }
 
 pub const ParsedValueFlags = packed struct(u8) {
@@ -575,15 +569,21 @@ pub fn fmtUsage(
     return .{ .data = .{ .usage = usage, .mode = mode } };
 }
 
-pub const ParsedFmtOptions = packed struct(u8) {
-    show_positional_names: bool = false,
-    _padding: u7 = undefined,
-};
-
-pub fn FmtParsedPtrs(comptime flags: []const Flag) type {
+pub fn ParsedFmtOptions(comptime flags: []const Flag) type {
     return struct {
-        parsed_ptrs: ParsedPtrs(flags, .@"const"),
-        options: ParsedFmtOptions,
+        flags: Flags = .{},
+        ptrs: ParsedPtrs(flags, .@"const") = .{},
+        pub const Flags = packed struct(u8) {
+            show_positional_names: bool = false,
+            _padding: u7 = undefined,
+        };
+    };
+}
+
+pub fn FmtParsed(comptime flags: []const Flag) type {
+    return struct {
+        parsed: Parsed(flags),
+        options: ParsedFmtOptions(flags),
 
         pub fn format(
             self: @This(),
@@ -593,8 +593,10 @@ pub fn FmtParsedPtrs(comptime flags: []const Flag) type {
         ) !void {
             inline for (flags, 0..) |flag, i| {
                 if (i != 0) try writer.writeByte(' ');
-
-                const value = @field(self.parsed_ptrs, flag.name).*;
+                const value = if (@field(self.options.ptrs, flag.name)) |ptr|
+                    ptr.*
+                else
+                    @field(self.parsed, flag.name);
 
                 if (flag.options.kind == .named) {
                     try writer.writeAll("--");
@@ -618,7 +620,7 @@ pub fn FmtParsedPtrs(comptime flags: []const Flag) type {
                         },
                     }
                 } else {
-                    if (self.options.show_positional_names) {
+                    if (self.options.flags.show_positional_names) {
                         try writer.writeAll(flag.name);
                         try writer.writeByte(':');
                     }
@@ -629,24 +631,12 @@ pub fn FmtParsedPtrs(comptime flags: []const Flag) type {
     };
 }
 
-pub fn fmtParsedPtrs(
-    comptime flags: []const Flag,
-    parsed_ptrs: ParsedPtrs(flags),
-    options: ParsedFmtOptions,
-) std.fmt.Formatter(FmtParsedPtrs(flags).format) {
-    return .{ .data = .{ .parsed_ptrs = parsed_ptrs, .options = options } };
-}
-
 pub fn fmtParsed(
     comptime flags: []const Flag,
-    parsed: *const Parsed(flags),
-    options: ParsedFmtOptions,
-) std.fmt.Formatter(FmtParsedPtrs(flags).format) {
-    var ptrs: ParsedPtrs(flags, .@"const") = undefined;
-    inline for (@typeInfo(Parsed(flags)).@"struct".fields) |f| {
-        @field(ptrs, f.name) = &@field(parsed, f.name);
-    }
-    return .{ .data = .{ .parsed_ptrs = ptrs, .options = options } };
+    parsed: Parsed(flags),
+    options: ParsedFmtOptions(flags),
+) std.fmt.Formatter(FmtParsed(flags).format) {
+    return .{ .data = .{ .parsed = parsed, .options = options } };
 }
 
 fn checkHelp(arg: []const u8) error{HelpRequested}!void {

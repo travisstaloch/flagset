@@ -184,22 +184,32 @@ test "duplicate flags" {
 test "parse into ptrs" {
     {
         var int: i8 = undefined;
-        _ = try flagset.parseFromSliceIntoPtrs(
+        const result = try flagset.parseFromSlice(
             &[_]flagset.Flag{.init(i8, "int", .{})},
             testArgs(&.{"-int=10"}),
-            .{ .int = &int },
-            .{},
+            .{ .ptrs = .{ .int = &int } },
         );
+        try testing.expect(result.parsed.int != 10); // should be undefined
         try testing.expectEqual(10, int);
     }
     {
         var int: i8 = undefined;
-        _ = try flagset.parseFromSliceIntoPtrs(
-            &[_]flagset.Flag{.init(i8, "int", .{})},
-            testArgs(&.{ "--int", "10" }),
-            .{ .int = &int },
-            .{},
+        const result = try flagset.parseFromSlice(
+            &[_]flagset.Flag{.init(i8, "int", .{ .kind = .positional })},
+            testArgs(&.{"10"}),
+            .{ .ptrs = .{ .int = &int } },
         );
+        try testing.expect(result.parsed.int != 10); // should be undefined
+        try testing.expectEqual(10, int);
+    }
+    { // default value
+        var int: i8 = undefined;
+        const result = try flagset.parseFromSlice(
+            &[_]flagset.Flag{.init(i8, "int", .{ .default_value = &@as(i8, 10) })},
+            testArgs(&.{}),
+            .{ .ptrs = .{ .int = &int } },
+        );
+        try testing.expect(result.parsed.int != 10); // should be undefined
         try testing.expectEqual(10, int);
     }
 }
@@ -316,7 +326,7 @@ test "command composition" {
             const pushres = try flagset.parseFromSlice(
                 &push_flagset,
                 result.unparsed_args,
-                .{ .skip_first_arg = false },
+                .{ .flags = .{ .skip_first_arg = false } },
             );
             try testing.expectEqual("origin", pushres.parsed.remote);
             try testing.expectEqual(true, pushres.parsed.force);
@@ -402,7 +412,7 @@ test "parseFn" {
 test "parseFn into ptr" {
     const T = i64;
     var time: T = undefined;
-    _ = try flagset.parseFromSliceIntoPtrs(&[_]flagset.Flag{
+    const result = try flagset.parseFromSlice(&[_]flagset.Flag{
         .init(T, "time", .{
             .kind = .positional,
             .parseFn = flagset.checkParseFn(T, &struct {
@@ -412,13 +422,14 @@ test "parseFn into ptr" {
                     _: anytype,
                     _: flagset.ParsedValueFlags,
                 ) flagset.Error!void {
-                    ptr.* = 420;
+                    ptr.* = 42;
                 }
             }.parseFn),
         }),
-    }, testArgs(&.{"4m20s"}), .{ .time = &time }, .{});
+    }, testArgs(&.{"4m20s"}), .{ .ptrs = .{ .time = &time } });
 
-    try testing.expectEqual(420, time);
+    try testing.expectEqual(42, time);
+    try testing.expect(result.parsed.time != 42); // should be undefined
 }
 
 const fmt_flagset = [_]flagset.Flag{
@@ -500,28 +511,32 @@ test "fmtUsage" {
 }
 
 test "fmtParsed - round trip" {
+    var count: u32 = undefined;
     const result = try flagset.parseFromSlice(
         &fmt_flagset,
         testArgs(&.{ "--flag", "--count", "10", "two", "--no-opt-string", "--string", "\"s\"", "pos-str" }),
-        .{},
+        .{ .ptrs = .{ .count = &count } },
     );
 
     try testing.expectFmt(
         \\--flag --count 10 two --no-opt-string --string "s" pos-str
     ,
         "{}",
-        .{flagset.fmtParsed(&fmt_flagset, &result.parsed, .{})},
+        .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{ .ptrs = .{ .count = &count } })},
     );
 
     try testing.expectFmt(
         \\--flag --count 10 enum:two --no-opt-string --string "s" pos-str:pos-str
     ,
         "{}",
-        .{flagset.fmtParsed(&fmt_flagset, &result.parsed, .{ .show_positional_names = true })},
+        .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{
+            .flags = .{ .show_positional_names = true },
+            .ptrs = .{ .count = &count },
+        })},
     );
 
     var buf: [128]u8 = undefined;
-    const formatted = try std.fmt.bufPrint(&buf, "exepath {}", .{flagset.fmtParsed(&fmt_flagset, &result.parsed, .{})});
+    const formatted = try std.fmt.bufPrint(&buf, "exepath {}", .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{})});
 
     const result2 = try flagset.parseFromIter(&fmt_flagset, std.mem.tokenizeScalar(u8, formatted, ' '), .{});
     try testing.expectEqual(result.parsed.flag, result2.parsed.flag);

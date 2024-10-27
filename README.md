@@ -12,8 +12,8 @@ Simplicity, fast compile times, and small binary size with measured use of compt
 * positional (unnamed) flags may occur in any position, not just after named flags.  positional flags are always parsed in declaration order.
 * compososition: `parse()` methods return unparsed args or a modified iterator.  this allows for composing flagsets by passing `parse_result.unparsed_args` on to other flagsets.
   * Flag parsing stops just before the first non-flag argument ("-" is a non-flag argument) or after the terminator "--"
-* parse into pointers with `parseFromSliceIntoPtrs()` and `parseFromIterIntoPtrs()`
-* custom flag parsing with `flagset.Flag.Options.parseFn`.  this also makes it possible to parse into a struct.
+* parse into pointers by passing optional runtime `ParseOptions.ptrs` fields
+* custom flag parsing with `flagset.Flag.Options.parseFn`.  this also makes it possible to parse into other types such as structs.
 * parse integers from utf8 strings by setting `flagset.Flag.Options.int_from_utf8`
 
 # use
@@ -59,7 +59,7 @@ pub fn main() !void {
         },
         else => return e,
     };
-    std.debug.print("parsed: {}\n", .{flagset.fmtParsed(&flags, &result.parsed, .{})});
+    std.debug.print("parsed: {}\n", .{flagset.fmtParsed(&flags, result.parsed, .{})});
 }
 ```
 ```console
