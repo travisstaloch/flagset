@@ -351,9 +351,16 @@ test "short names" {
     try testing.expectEqual(2222, result.parsed.port);
 
     try testing.expectError(
-        error.ParseFailure,
+        error.MissingRequiredFlag,
         flagset.parseFromSlice(&flags, &.{ "ssh", "server.com", "--p", "2222" }, .{}),
     );
+
+    const result3 = try flagset.parseFromSlice(
+        &.{.init(u8, "int", .{ .short = 'i', .default_value = &@as(u8, 0) })},
+        testArgs(&.{ "--i", "2222" }),
+        .{},
+    );
+    try testing.expectEqual(2, result3.unparsed_args.len);
 }
 
 test "one letter non-short name" {
@@ -411,7 +418,8 @@ test "parseFn" {
     try testing.expect(expected.eql(result2.parsed.ip));
 }
 
-test "parseFn into ptr" {
+test "parseFn misc" {
+    // parse into ptr
     const T = i64;
     var time: T = undefined;
     const result = try flagset.parseFromSlice(&[_]flagset.Flag{
@@ -428,10 +436,28 @@ test "parseFn into ptr" {
                 }
             }.parseFn),
         }),
-    }, testArgs(&.{"4m20s"}), .{ .ptrs = .{ .time = &time } });
+    }, testArgs(&.{"42s"}), .{ .ptrs = .{ .time = &time } });
 
     try testing.expectEqual(42, time);
     try testing.expect(result.parsed.time != 42); // should be undefined
+
+    // stop parsing
+    const result2 = try flagset.parseFromSlice(&[_]flagset.Flag{
+        .init(T, "time", .{
+            .parseFn = flagset.checkParseFn(T, &struct {
+                fn parseFn(
+                    _: *T,
+                    _: []const u8,
+                    _: anytype,
+                    _: flagset.ParsedValueFlags,
+                ) flagset.Error!void {
+                    return error.NonFlagArgument;
+                }
+            }.parseFn),
+            .default_value = &@as(T, 0),
+        }),
+    }, testArgs(&.{ "--foo", "42" }), .{});
+    try testing.expectEqual(2, result2.unparsed_args.len);
 }
 
 const fmt_flagset = [_]flagset.Flag{

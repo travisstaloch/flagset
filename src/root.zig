@@ -217,6 +217,7 @@ pub fn iterPeek(iter_ptr: anytype) ?[]const u8 {
 }
 
 pub const Error = error{
+    NonFlagArgument,
     ParseFailure,
     DuplicateFlag,
     MissingRequiredFlag,
@@ -322,7 +323,10 @@ pub fn parseFromIter(
             mfield_enum = stringToEnum(FieldEnum, key);
             if (mfield_enum == null and key.len == 1) {
                 // shorts must have single dash like '-b' and not '--b'
-                if (is_double_dash) return error.ParseFailure;
+                if (is_double_dash) {
+                    args_iter_mut = args_iter_prev;
+                    break;
+                }
                 const short = shorts[key[0]];
                 if (short != short_sentinel) mfield_enum = @enumFromInt(short);
             }
@@ -342,10 +346,18 @@ pub fn parseFromIter(
                     else
                         &@field(parsed, name);
 
-                    if (comptime flag.parseFn()) |parseFn|
-                        try parseFn(ptr, value, &args_iter_mut, parsed_flags)
+                    const merr = if (comptime flag.parseFn()) |parseFn|
+                        parseFn(ptr, value, &args_iter_mut, parsed_flags)
                     else
-                        try parseValue(ptr, value, &args_iter_mut, parsed_flags);
+                        parseValue(ptr, value, &args_iter_mut, parsed_flags);
+
+                    _ = merr catch |e| switch (e) {
+                        error.NonFlagArgument => {
+                            args_iter_mut = args_iter_prev;
+                            break;
+                        },
+                        else => return e,
+                    };
 
                     seen_flags.insert(field_enum);
                     continue :args;
@@ -370,10 +382,18 @@ pub fn parseFromIter(
                         else
                             &@field(parsed, name);
 
-                        if (comptime flag.parseFn()) |parseFn|
-                            try parseFn(ptr, arg, &args_iter_mut, parsed_flags)
+                        const merr = if (comptime flag.parseFn()) |parseFn|
+                            parseFn(ptr, arg, &args_iter_mut, parsed_flags)
                         else
-                            try parseValue(ptr, arg, &args_iter_mut, parsed_flags);
+                            parseValue(ptr, arg, &args_iter_mut, parsed_flags);
+
+                        _ = merr catch |e| switch (e) {
+                            error.NonFlagArgument => {
+                                args_iter_mut = args_iter_prev;
+                                break;
+                            },
+                            else => return e,
+                        };
 
                         seen_flags.insert(missing_flag);
                         continue :args;
@@ -453,7 +473,7 @@ fn parseValue(
     value_str: []const u8,
     arg_iter_ptr: anytype,
     parsed_flags: ParsedValueFlags,
-) !void {
+) Error!void {
     const T = @TypeOf(ptr.*);
     const info = @typeInfo(T);
     debug("parseValue({s}) value_str '{s}' negated {}", .{ @tagName(info), value_str, parsed_flags.negated });
