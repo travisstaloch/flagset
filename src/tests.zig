@@ -384,18 +384,17 @@ test "parseFn" {
         .init(std.net.Address, "ip", .{
             .parseFn = flagset.checkParseFn(std.net.Address, &struct {
                 fn parseFn(
-                    result_ptr: *std.net.Address,
                     value_str: []const u8,
                     args_iter_ptr: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.ParseError!void {
+                ) flagset.ParseError!std.net.Address {
                     const to_parse = if (value_str.len != 0)
                         value_str
                     else if (args_iter_ptr.next()) |next_arg|
                         next_arg
                     else
                         return error.UnexpectedValue;
-                    result_ptr.* = std.net.Address.parseIp(to_parse, 0) catch
+                    return std.net.Address.parseIp(to_parse, 0) catch
                         return error.UnexpectedValue;
                 }
             }.parseFn),
@@ -412,12 +411,11 @@ test "parseFn" {
             .kind = .positional,
             .parseFn = flagset.checkParseFn(std.net.Address, &struct {
                 fn parseFn(
-                    result_ptr: *std.net.Address,
                     value_str: []const u8,
                     _: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.ParseError!void {
-                    result_ptr.* = std.net.Address.parseIp(value_str, 0) catch
+                ) flagset.ParseError!std.net.Address {
+                    return std.net.Address.parseIp(value_str, 0) catch
                         return error.UnexpectedValue;
                 }
             }.parseFn),
@@ -428,19 +426,18 @@ test "parseFn" {
 
 test "parseFn misc" {
     // parse into ptr
-    const T = i64;
-    var time: T = undefined;
+    const I = i64;
+    var time: I = undefined;
     const result = try flagset.parseFromSlice(&[_]flagset.Flag{
-        .init(T, "time", .{
+        .init(I, "time", .{
             .kind = .positional,
-            .parseFn = flagset.checkParseFn(T, &struct {
+            .parseFn = flagset.checkParseFn(I, &struct {
                 fn parseFn(
-                    result_ptr: *T,
                     _: []const u8,
                     _: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.ParseError!void {
-                    result_ptr.* = 42;
+                ) flagset.ParseError!i64 {
+                    return 42;
                 }
             }.parseFn),
         }),
@@ -451,18 +448,17 @@ test "parseFn misc" {
 
     // stop parsing
     const result2 = try flagset.parseFromSlice(&[_]flagset.Flag{
-        .init(T, "time", .{
-            .parseFn = flagset.checkParseFn(T, &struct {
+        .init(I, "time", .{
+            .parseFn = flagset.checkParseFn(I, &struct {
                 fn parseFn(
-                    _: *T,
                     _: []const u8,
                     _: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.ParseError!void {
+                ) flagset.ParseError!i64 {
                     return error.NonFlagArgument;
                 }
             }.parseFn),
-            .default_value = &@as(T, 0),
+            .default_value = &@as(I, 0),
         }),
     }, testArgs(&.{ "--foo", "42" }), .{});
     try testing.expectEqual(2, result2.unparsed_args.len);

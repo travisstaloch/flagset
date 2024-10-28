@@ -110,29 +110,28 @@ pub const Flag = struct {
 /// see src/tests.zig test "parseFn" for a good example
 pub fn ParseFn(comptime T: type) type {
     return fn (
-        /// parse result pointer.  should be written to on parse success.
-        result_ptr: *T,
-        /// the current, trimmed command line argument to be parsed.
-        /// when non-empty, should be parsed into a T.
-        /// when empty, `args_iter_ptr` should be used to get the next arg to be parsed.
+        /// the current, trimmed command line argument to be parsed into a T
+        /// when non-empty.
+        /// when empty, `args_iter_ptr` can be used to get the next arg to be parsed.
         /// on named arguments, contains everything after the '='.
         /// on positional args, will always be non-empty.
         value_str: []const u8,
         /// a pointer to the command line argument iterator.
-        /// should be used to get the next arg when value_str is empty.
-        /// should be advanced on parse success by calling .next().
+        /// used to get the next arg when value_str is empty by calling next()
+        /// on it.
         /// may be peeked with flagset.iterPeek(args_iter_ptr).
         args_iter_ptr: anytype,
         parsed_flags: ParsedValueFlags,
-    ) ParseError!void;
+    ) ParseError!T;
 }
 
 /// used to verify the signature of a parseFn
 pub inline fn checkParseFn(comptime T: type, comptime parseFn: anytype) *const anyopaque {
     comptime {
         const ParseFnT = @TypeOf(parseFn);
-        if (ParseFnT != *const ParseFn(T))
-            @compileError("unexpected parseFn type:\n" ++ @typeName(ParseFnT) ++ "\nexpected:\n" ++ @typeName(ParseFn(T)));
+        const E = *const ParseFn(T);
+        if (ParseFnT != E)
+            @compileError("expected parseFn type:\n" ++ @typeName(E) ++ "\nfound:\n" ++ @typeName(ParseFnT));
         return @ptrCast(parseFn);
     }
 }
@@ -361,24 +360,24 @@ pub fn parseFromIter(
                     const flag = flags[@intFromEnum(inline_fe)];
                     parsed_flags.int_from_utf8 = flag.options.int_from_utf8;
 
-                    const name = @tagName(inline_fe);
-                    const ptr = if (@field(parse_options.ptrs, name)) |ptr|
-                        ptr
-                    else
-                        &@field(parsed, name);
-
                     const merr = if (comptime flag.parseFn()) |parseFn|
-                        parseFn(ptr, value, &args_iter_mut, parsed_flags)
+                        parseFn(value, &args_iter_mut, parsed_flags)
                     else
-                        parseValue(ptr, value, &args_iter_mut, parsed_flags);
+                        parseValue(flag.type, value, &args_iter_mut, parsed_flags);
 
-                    _ = merr catch |e| switch (e) {
+                    const parsed_value = merr catch |e| switch (e) {
                         error.NonFlagArgument => {
                             args_iter_mut = args_iter_prev;
                             break;
                         },
                         else => return e,
                     };
+
+                    const name = @tagName(inline_fe);
+                    if (@field(parse_options.ptrs, name)) |ptr|
+                        ptr.* = parsed_value
+                    else
+                        @field(parsed, name) = parsed_value;
 
                     seen_flags.insert(field_enum);
                     continue :args;
@@ -397,24 +396,24 @@ pub fn parseFromIter(
                         debug("positional match for arg '{s}'. flag '{s}'", .{ arg, @tagName(missing_flag) });
                         parsed_flags.int_from_utf8 = flag.options.int_from_utf8;
 
-                        const name = @tagName(inline_fe);
-                        const ptr = if (@field(parse_options.ptrs, name)) |ptr|
-                            ptr
+                        const mparsed = if (comptime flag.parseFn()) |parseFn|
+                            parseFn(arg, &args_iter_mut, parsed_flags)
                         else
-                            &@field(parsed, name);
+                            parseValue(flag.type, arg, &args_iter_mut, parsed_flags);
 
-                        const merr = if (comptime flag.parseFn()) |parseFn|
-                            parseFn(ptr, arg, &args_iter_mut, parsed_flags)
-                        else
-                            parseValue(ptr, arg, &args_iter_mut, parsed_flags);
-
-                        _ = merr catch |e| switch (e) {
+                        const parsed_value = mparsed catch |e| switch (e) {
                             error.NonFlagArgument => {
                                 args_iter_mut = args_iter_prev;
                                 break;
                             },
                             else => return e,
                         };
+
+                        const name = @tagName(inline_fe);
+                        if (@field(parse_options.ptrs, name)) |ptr|
+                            ptr.* = parsed_value
+                        else
+                            @field(parsed, name) = parsed_value;
 
                         seen_flags.insert(missing_flag);
                         continue :args;
@@ -434,13 +433,14 @@ pub fn parseFromIter(
             inline else => |inline_fe| {
                 const flag = flags[@intFromEnum(inline_fe)];
                 if (flag.options.default_value) |default| {
+                    const default_value = @as(*const flag.type, @alignCast(@ptrCast(default))).*;
                     const name = @tagName(inline_fe);
-                    const ptr = if (@field(parse_options.ptrs, name)) |ptr|
-                        ptr
-                    else
-                        &@field(parsed, name);
 
-                    ptr.* = @as(*const flag.type, @alignCast(@ptrCast(default))).*;
+                    if (@field(parse_options.ptrs, name)) |ptr|
+                        ptr.* = default_value
+                    else
+                        @field(parsed, name) = default_value;
+
                     seen_flags.insert(missing_flag);
                 } else {
                     if (!@import("builtin").is_test)
@@ -492,12 +492,11 @@ fn parseBool(arg: []const u8) ?bool {
 }
 
 fn parseValue(
-    result_ptr: anytype,
+    comptime T: type,
     value_str: []const u8,
     arg_iter_ptr: anytype,
     parsed_flags: ParsedValueFlags,
-) ParseError!void {
-    const T = @TypeOf(result_ptr.*);
+) ParseError!T {
     const info = @typeInfo(T);
     debug("parseValue({s}) value_str '{s}' negated {}", .{ @tagName(info), value_str, parsed_flags.negated });
     switch (info) {
@@ -506,56 +505,53 @@ fn parseValue(
                 debug("bool next '{s}'", .{next});
                 if (parseBool(next)) |b| {
                     _ = arg_iter_ptr.next();
-                    result_ptr.* = b;
-                    return;
+                    return b;
                 }
             }
-            result_ptr.* = !parsed_flags.negated;
+            return !parsed_flags.negated;
         } else if (parsed_flags.negated)
             return error.NonFlagArgument
         else {
-            result_ptr.* = if (parseBool(value_str)) |b|
+            return if (parseBool(value_str)) |b|
                 b
             else
                 return error.UnexpectedValue;
         },
 
         .int => if (value_str.len > 0) {
-            result_ptr.* = try parseInt(T, value_str, parsed_flags);
+            return try parseInt(T, value_str, parsed_flags);
         } else if (arg_iter_ptr.next()) |next| {
-            result_ptr.* = try parseInt(T, next, parsed_flags);
+            return try parseInt(T, next, parsed_flags);
         } else return error.UnexpectedValue,
 
         .float => if (value_str.len > 0) {
-            result_ptr.* = try std.fmt.parseFloat(T, value_str);
+            return try std.fmt.parseFloat(T, value_str);
         } else if (arg_iter_ptr.next()) |next| {
-            result_ptr.* = try std.fmt.parseFloat(T, next);
+            return try std.fmt.parseFloat(T, next);
         } else return error.UnexpectedValue,
 
         .@"enum" => if (value_str.len > 0) {
-            result_ptr.* = std.meta.stringToEnum(T, value_str) orelse
+            return std.meta.stringToEnum(T, value_str) orelse
                 return error.UnexpectedValue;
         } else if (arg_iter_ptr.next()) |next| {
-            result_ptr.* = std.meta.stringToEnum(T, next) orelse
+            return std.meta.stringToEnum(T, next) orelse
                 return error.UnexpectedValue;
         } else return error.UnexpectedValue,
 
         .pointer => if (comptime isZigString(T)) {
             if (value_str.len > 0) {
-                result_ptr.* = value_str;
+                return value_str;
             } else if (arg_iter_ptr.next()) |next| {
-                result_ptr.* = next;
+                return next;
             } else {
                 return error.UnexpectedValue;
             }
         } else unsupportedType(T),
 
         .optional => |x| if (parsed_flags.negated) {
-            result_ptr.* = null;
+            return null;
         } else {
-            var val: x.child = undefined;
-            try parseValue(&val, value_str, arg_iter_ptr, parsed_flags);
-            result_ptr.* = val;
+            return try parseValue(x.child, value_str, arg_iter_ptr, parsed_flags);
         },
 
         else => unsupportedType(T),
