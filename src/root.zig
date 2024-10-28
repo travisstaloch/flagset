@@ -2,6 +2,8 @@
 //! this lib uses many ideas from https://github.com/Games-by-Mason/structopt
 //!
 
+pub const StaticBitsetMap = @import("static-bitset-map.zig").StaticBitsetMap;
+
 /// A single command line flag.  This struct allows users to describe their cli.
 /// Names must be distinct.
 pub const Flag = struct {
@@ -145,7 +147,7 @@ fn validateFlag(flag: Flag, i: usize, fields: []const std.builtin.Type.StructFie
     if (mem.indexOfScalar(u8, flag.name, ' ') != null)
         invalidFlagError(flag, i, "spaces in name");
     if (mem.eql(u8, flag.name, "help"))
-        invalidFlagError(flag, i, "invalid name");
+        invalidFlagError(flag, i, "--help is a reserved flag name");
 
     const info = @typeInfo(flag.type);
     if (flag.options.int_from_utf8 and info != .int)
@@ -318,21 +320,27 @@ pub fn parseFromIter(
 
         debug("arg '{s}' key '{s}' value '{?s}' negated {}", .{ arg, key, value, parsed_flags.negated });
 
-        const short_sentinel = 255;
         const shorts = comptime blk: {
-            assert(pinfo.@"struct".fields.len < short_sentinel);
-            var shorts = [1]u8{short_sentinel} ** 256;
+            assert(flags.len < 256);
+            var shorts_count: u8 = 0;
+            for (flags) |flag| shorts_count += @intFromBool(flag.options.short != null);
+            var values = [1]FieldEnum{undefined} ** shorts_count;
+            var shorts = StaticBitsetMap(256, FieldEnum).initEmpty(&values);
+
             var i: u8 = 0;
             for (flags) |flag| {
                 if (flag.options.short) |s| {
-                    if (shorts[s] != short_sentinel)
-                        invalidFlagError(flag, i, "duplicate short '" ++ [_]u8{s} ++ "' in flag");
                     if (s == 'h')
-                        invalidFlagError(flag, i, "invalid short '" ++ [_]u8{s} ++ "' in flag");
-                    shorts[s] = i;
+                        invalidFlagError(flag, i, "-h is reserved short name");
+                    if (shorts.isSet(s))
+                        invalidFlagError(flag, i, "duplicate short '" ++ [_]u8{s} ++ "' in flag");
+                    shorts.set(s, @enumFromInt(i));
                 }
                 i += 1;
             }
+            assert(shorts_count == shorts.count());
+            const final = values;
+            shorts.values = @constCast(&final); // TODO must be a better way
             break :blk shorts;
         };
 
@@ -347,13 +355,12 @@ pub fn parseFromIter(
                     args_iter_mut = args_iter_prev;
                     break;
                 }
-                const short = shorts[key[0]];
-                if (short != short_sentinel) mfield_enum = @enumFromInt(short);
+                if (shorts.get(key[0])) |field_enum| mfield_enum = field_enum;
             }
         }
 
         if (mfield_enum) |field_enum| {
-            debug("match {s}", .{arg});
+            debug("match {s} flag {s}", .{ arg, @tagName(field_enum) });
             if (seen_flags.contains(field_enum)) return error.DuplicateFlag;
             switch (field_enum) {
                 inline else => |inline_fe| {
@@ -681,6 +688,7 @@ fn checkHelp(arg: []const u8) error{HelpRequested}!void {
     const n = mem.readInt(u48, &buf, .big);
     switch (n) {
         mem.readInt(u48, "-h\x00\x00\x00\x00", .big),
+        mem.readInt(u48, "-help", .big),
         mem.readInt(u48, "--help", .big),
         => return error.HelpRequested,
         else => {},

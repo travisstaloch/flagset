@@ -349,7 +349,6 @@ test "short names" {
     const result2 = try flagset.parseFromSlice(&flags, &.{ "ssh", "server.com", "--port", "2222" }, .{});
     try testing.expectEqualStrings("server.com", result2.parsed.host);
     try testing.expectEqual(2222, result2.parsed.port);
-
     const result = try flagset.parseFromSlice(&flags, &.{ "ssh", "server.com", "-p", "2222" }, .{});
     try testing.expectEqualStrings("server.com", result.parsed.host);
     try testing.expectEqual(2222, result.parsed.port);
@@ -587,4 +586,83 @@ test "fmtParsed - round trip" {
     try testing.expect(result3.parsed.@"opt-string" == null);
     try testing.expectEqualStrings(result.parsed.string, result3.parsed.string);
     try testing.expectEqualStrings(result.parsed.@"pos-str", result3.parsed.@"pos-str");
+}
+
+test "SmallSet" {
+    _ = flagset.StaticBitsetMap(std.math.maxInt(u16), u8).initEmpty(undefined);
+    _ = flagset.StaticBitsetMap(0, u8).initEmpty(undefined);
+    { // getIndex
+        var shorts = flagset.StaticBitsetMap(256, u8).initEmpty(undefined);
+        for (0..256) |i| {
+            shorts.bitset |= @as(u256, 1) << @as(u8, @intCast(i));
+            for (0..i + 1) |j| {
+                try testing.expectEqual(j, shorts.getIndex(@intCast(j)).?);
+            }
+        }
+    }
+
+    {
+        var buf: [20]u8 = undefined;
+        var shorts = flagset.StaticBitsetMap(20, u8).initEmpty(&buf);
+        shorts.set(0, 0);
+        try testing.expectEqual(0, shorts.get(0));
+        try testing.expectEqual(0, shorts.getIndex(0));
+        try testing.expectEqual(1, shorts.count());
+        shorts.set(0, 1);
+        try testing.expectEqual(1, shorts.get(0));
+        try testing.expectEqual(0, shorts.getIndex(0));
+        try testing.expectEqual(1, shorts.count());
+        shorts.set(19, 4);
+        try testing.expectEqual(4, shorts.get(19));
+        try testing.expectEqual(0, shorts.getIndex(0));
+        try testing.expectEqual(1, shorts.getIndex(19));
+        try testing.expectEqual(2, shorts.count());
+        shorts.set(10, 3);
+        try testing.expectEqual(3, shorts.get(10));
+        try testing.expectEqual(0, shorts.getIndex(0));
+        try testing.expectEqual(1, shorts.getIndex(10));
+        try testing.expectEqual(2, shorts.getIndex(19));
+        try testing.expectEqual(3, shorts.count());
+        shorts.set(5, 2);
+        try testing.expectEqual(2, shorts.get(5));
+        try testing.expectEqual(0, shorts.getIndex(0));
+        try testing.expectEqual(1, shorts.getIndex(5));
+        try testing.expectEqual(2, shorts.getIndex(10));
+        try testing.expectEqual(3, shorts.getIndex(19));
+        try testing.expectEqual(4, shorts.count());
+
+        try testing.expectEqualSlices(u8, &.{ 1, 2, 3, 4 }, shorts.values[0..shorts.count()]);
+    }
+
+    const testFn = struct {
+        fn testFn(buf: []u8, keys_len: u9, random: std.Random) !void {
+            const alloc = std.testing.allocator;
+            const keys = buf[0..keys_len];
+            random.shuffle(u8, keys);
+            const values = try alloc.alloc(u8, keys_len);
+            defer alloc.free(values);
+            var actual = flagset.StaticBitsetMap(256, u8).initEmpty(values);
+            for (0..keys_len) |i| {
+                actual.set(keys[i], @intCast(i));
+            }
+
+            for (0..keys_len) |i| {
+                try testing.expectEqual(@as(u8, @intCast(i)), actual.get(keys[i]));
+            }
+
+            for (0..keys_len) |i| {
+                try testing.expectEqual(@as(u8, @intCast(i)), actual.get(keys[i]));
+            }
+        }
+    }.testFn;
+
+    var prng = std.Random.DefaultPrng.init(0);
+    const random = prng.random();
+    var buf: [256]u8 = undefined;
+    for (0..buf.len) |i| buf[i] = @intCast(i);
+    try testFn(&buf, 256, random);
+    for (0..100) |_| {
+        const keys_len = random.int(u9);
+        try testFn(&buf, @min(256, keys_len), random);
+    }
 }
