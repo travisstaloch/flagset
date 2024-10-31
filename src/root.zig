@@ -286,8 +286,7 @@ pub fn parseFromIter(
     args: while (args_iter_mut.next()) |arg| : (args_iter_prev = args_iter_mut) {
         assert(arg.len > 0);
         var parsed_flags: ParsedValueFlags = .{ .negated = false, .int_from_utf8 = false };
-        var is_double_dash = false;
-        var starts_with_dash = false;
+        var leading_dashes: enum { none, one, two } = .none;
 
         // split arg into a flag name key and value.  value is anything after '='
         const key, const value = if (arg[0] == '-') kv: {
@@ -295,16 +294,16 @@ pub fn parseFromIter(
 
             try checkHelp(arg);
 
-            starts_with_dash = true;
+            leading_dashes = .one;
             var arg_mut = arg[1..];
             if (arg_mut.len > 0 and arg_mut[0] == '-') {
                 // arg starts with "--"
-                is_double_dash = true;
+                leading_dashes = .two;
                 arg_mut = arg_mut[1..];
             }
             if (arg_mut.len == 0) {
                 // '-' or '--'
-                if (!is_double_dash) args_iter_mut = args_iter_prev;
+                if (leading_dashes != .two) args_iter_mut = args_iter_prev;
                 break;
             }
             if (mem.startsWith(u8, arg_mut, "no-")) {
@@ -346,12 +345,12 @@ pub fn parseFromIter(
 
         // match key
         var mfield_enum: ?FieldEnum = null;
-        if (starts_with_dash) {
+        if (leading_dashes != .none) {
             // match long names first
             mfield_enum = stringToEnum(FieldEnum, key);
             if (mfield_enum == null and key.len == 1) {
                 // shorts must have single dash like '-b' and not '--b'
-                if (is_double_dash) {
+                if (leading_dashes == .two) {
                     args_iter_mut = args_iter_prev;
                     break;
                 }
