@@ -656,6 +656,7 @@ test "SmallSet" {
         }
     }.testFn;
 
+    // fuzz
     var prng = std.Random.DefaultPrng.init(0);
     const random = prng.random();
     var buf: [256]u8 = undefined;
@@ -665,4 +666,20 @@ test "SmallSet" {
         const keys_len = random.int(u9);
         try testFn(&buf, @min(256, keys_len), random);
     }
+}
+
+test "combined shorts" {
+    const flags = [_]flagset.Flag{
+        .init(bool, "fa", .{ .short = 'a' }),
+        .init(bool, "fb", .{ .short = 'b' }),
+        .init(bool, "fc", .{ .short = 'c', .default_value = &false }),
+    };
+    try expectParsed(&flags, testArgs(&.{"-abc"}), .{ .fa = true, .fb = true, .fc = true });
+    try expectParsed(&flags, testArgs(&.{"-ab"}), .{ .fa = true, .fb = true, .fc = false });
+    try expectParsed(&flags, testArgs(&.{ "-c", "-ab" }), .{ .fa = true, .fb = true, .fc = true });
+
+    try testing.expectError(
+        error.MissingRequiredFlag,
+        flagset.parseFromSlice(&flags, testArgs(&.{"-ac"}), .{}),
+    );
 }

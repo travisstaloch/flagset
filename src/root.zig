@@ -319,12 +319,13 @@ pub fn parseFromIter(
 
         debug("arg '{s}' key '{s}' value '{?s}' negated {}", .{ arg, key, value, parsed_flags.negated });
 
-        const shorts = comptime blk: {
+        const shorts, const short_bool_flags_set = comptime blk: {
             assert(flags.len < 256);
             var shorts_count: u8 = 0;
             for (flags) |flag| shorts_count += @intFromBool(flag.options.short != null);
             var values = [1]FieldEnum{undefined} ** shorts_count;
             var shorts = StaticBitsetMap(256, FieldEnum).initEmpty(&values);
+            var short_bool_flags_set = std.enums.EnumSet(FieldEnum).initEmpty();
 
             var i: u8 = 0;
             for (flags) |flag| {
@@ -334,13 +335,14 @@ pub fn parseFromIter(
                     if (shorts.isSet(s))
                         invalidFlagError(flag, i, "duplicate short '" ++ [_]u8{s} ++ "' in flag");
                     shorts.set(s, @enumFromInt(i));
+                    if (flag.type == bool) short_bool_flags_set.insert(@enumFromInt(i));
                 }
                 i += 1;
             }
             assert(shorts_count == shorts.count());
             const final = values;
             shorts.values = @constCast(&final); // TODO must be a better way
-            break :blk shorts;
+            break :blk .{ shorts, short_bool_flags_set };
         };
 
         // match key
@@ -389,6 +391,31 @@ pub fn parseFromIter(
                     continue :args;
                 },
             }
+        } else if (leading_dashes == .one) combined_shorts: {
+            // parse combined bool flags so that '-abc' is equivalent to '-a -b -c'
+            var shorts_seen = std.enums.EnumSet(FieldEnum).initEmpty();
+            for (key) |c| {
+                const fe = shorts.get(c) orelse break :combined_shorts;
+                if (!short_bool_flags_set.contains(fe)) break :combined_shorts;
+                shorts_seen.insert(fe);
+            }
+
+            var bool_flags_iter = shorts_seen.iterator();
+            while (bool_flags_iter.next()) |bool_flag| {
+                switch (bool_flag) {
+                    inline else => |inline_fe| {
+                        const name = @tagName(inline_fe);
+                        if (@typeInfo(@TypeOf(@field(parsed, name))) == .bool) {
+                            if (@field(parse_options.ptrs, name)) |ptr|
+                                ptr.* = true
+                            else
+                                @field(parsed, name) = true;
+                            seen_flags.insert(bool_flag);
+                        } else unreachable;
+                    },
+                }
+            }
+            continue :args;
         }
 
         // parse positionals

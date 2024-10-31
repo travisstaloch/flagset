@@ -7,15 +7,15 @@ Simplicity, fast compile times, and small binary size with measured use of compt
 # features
 * auto generated usage/help text
   * format width specifier controls column width.  i.e. `"{: <25}"` sets width to 25.
-* accept command line args as slice or iterator with `parseFromSlice()` and `parseFromIter()`
-  * supports any iterator with a `fn next() ?[]const u8` such as `std.process.args()`, `std.mem.tokenize()`, `std.mem.split()`
 * positional (unnamed) flags may occur in any position, not just after named flags.  positional flags are always parsed in declaration order.
 * compososition: `parse()` methods return unparsed args or a modified iterator.  this allows for composing flagsets by passing `parse_result.unparsed_args` on to further `parse()` methods with different flagsets.
   * Flag parsing stops when all flags have been parsed, just before the first non-flag argument ("-" is a non-flag argument) or after the terminator "--"
 * parse into pointers by passing optional runtime `ParseOptions.ptrs` fields
 * custom flag parsing with `flagset.Flag.Options.parseFn`.  this also makes it possible to parse into other types such as structs.
 * parse integers from utf8 strings by setting `flagset.Flag.Options.int_from_utf8`
-
+* abbreviated short bool flags: '-abc' is parsed the same as '-a -b -c'
+* accept command line args as slice or iterator with `parseFromSlice()` and `parseFromIter()`
+  * supports any iterator with a `fn next() ?[]const u8` such as `std.process.args()`, `std.mem.tokenize()`, `std.mem.split()`
 # use
 ```console
 zig fetch --save git+https://github.com/travisstaloch/flagset
