@@ -2,6 +2,11 @@
 //! this lib uses many ideas from https://github.com/Games-by-Mason/structopt
 //!
 
+const std = @import("std");
+const mem = std.mem;
+const meta = std.meta;
+const assert = std.debug.assert;
+
 pub const StaticBitsetMap = @import("static-bitset-map.zig").StaticBitsetMap;
 
 /// A single command line flag.  This struct allows users to describe their cli.
@@ -157,10 +162,11 @@ fn validateFlag(flag: Flag, i: usize, fields: []const std.builtin.Type.StructFie
 /// a struct with field names and types from 'flags'
 pub inline fn Parsed(comptime flags: []const Flag) type {
     comptime {
-        var fields: []const std.builtin.Type.StructField = &.{};
+        const StructField = std.builtin.Type.StructField;
+        var fields: []const StructField = &.{};
         for (flags, 0..) |flag, i| {
             validateFlag(flag, i, fields);
-            fields = fields ++ .{.{
+            fields = fields ++ .{StructField{
                 .type = flag.type,
                 .name = flag.name,
                 .default_value = null,
@@ -183,13 +189,14 @@ pub fn ParsedPtrs(
     comptime mutability: enum { @"const", mut },
 ) type {
     comptime {
-        var fields: []const std.builtin.Type.StructField = &.{};
+        const StructField = std.builtin.Type.StructField;
+        var fields: []const StructField = &.{};
         for (flags, 0..) |flag, i| {
             validateFlag(flag, i, fields);
             const T = ?if (mutability == .@"const") *const flag.type else *flag.type;
             const default: T = null;
             const default_ptr: ?*const anyopaque = @ptrCast(&default);
-            fields = fields ++ .{.{
+            fields = fields ++ .{StructField{
                 .type = T,
                 .name = flag.name,
                 .default_value = default_ptr,
@@ -792,8 +799,4 @@ fn debug(comptime fmt: []const u8, args: anytype) void {
     // log.debug(fmt, args);
 }
 
-const std = @import("std");
-const mem = std.mem;
-const meta = std.meta;
 const log = std.log.scoped(.flags);
-const assert = std.debug.assert;

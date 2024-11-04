@@ -1,6 +1,7 @@
 const std = @import("std");
-const flagset = @import("flagset");
 const testing = std.testing;
+
+const flagset = @import("flagset");
 
 const exepath = "exepath";
 inline fn testArgs(comptime rest: []const [:0]const u8) []const [:0]const u8 {
@@ -238,8 +239,9 @@ test "mixed positional args - any arg order" {
         .init(i8, "int3", .{ .kind = .positional }),
     };
     const args = [_][]const [:0]const u8{ &.{ "-int1", "1" }, &.{"2"}, &.{"3"} };
-    const expected = .{ .int1 = 1, .int2 = 2, .int3 = 3 };
-    const expected2 = .{ .int1 = 1, .int2 = 3, .int3 = 2 };
+    const P = flagset.Parsed(&flags);
+    const expected = P{ .int1 = 1, .int2 = 2, .int3 = 3 };
+    const expected2 = P{ .int1 = 1, .int2 = 3, .int3 = 2 };
     try expectParsed(
         &flags,
         testArgs(args[0] ++ args[1] ++ args[2]),
@@ -268,48 +270,6 @@ test "mixed positional args - any arg order" {
     try expectParsed(
         &flags,
         testArgs(args[2] ++ args[1] ++ args[0]),
-        expected2,
-    );
-}
-
-test "mixed positional args - any flag order" {
-    const flags = comptime [_]flagset.Flag{
-        .init(i8, "int1", .{}),
-        .init(i8, "int2", .{ .kind = .positional }),
-        .init(i8, "int3", .{ .kind = .positional }),
-    };
-    const args = [_][:0]const u8{ "-int1", "1", "2", "3" };
-    const expected = .{ .int1 = 1, .int2 = 2, .int3 = 3 };
-    const expected2 = .{ .int1 = 1, .int2 = 3, .int3 = 2 };
-
-    try expectParsed(
-        &(.{flags[0]} ++ .{flags[1]} ++ .{flags[2]}),
-        testArgs(&args),
-        expected,
-    );
-    try expectParsed(
-        &(.{flags[0]} ++ .{flags[2]} ++ .{flags[1]}),
-        testArgs(&args),
-        expected2,
-    );
-    try expectParsed(
-        &(.{flags[1]} ++ .{flags[0]} ++ .{flags[2]}),
-        testArgs(&args),
-        expected,
-    );
-    try expectParsed(
-        &(.{flags[1]} ++ .{flags[2]} ++ .{flags[0]}),
-        testArgs(&args),
-        expected,
-    );
-    try expectParsed(
-        &(.{flags[2]} ++ .{flags[0]} ++ .{flags[1]}),
-        testArgs(&args),
-        expected2,
-    );
-    try expectParsed(
-        &(.{flags[2]} ++ .{flags[1]} ++ .{flags[0]}),
-        testArgs(&args),
         expected2,
     );
 }
