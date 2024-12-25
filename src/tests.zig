@@ -61,87 +61,94 @@ test "accept std.process.args()/argsAlloc() mem.tokenize()/split()" {
 
 test "parsing stops before first non-flag arg or after '--'" {
     {
-        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "-bool", "true", "foo" }), .{});
+        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "--bool", "true", "foo" }), .{});
         try testing.expectEqual(1, result.unparsed_args.len);
     }
     {
-        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "-bool", "foo" }), .{});
+        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "--bool", "foo" }), .{});
         try testing.expectEqual(1, result.unparsed_args.len);
     }
     {
-        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "-bool", "true", "-", "foo" }), .{});
+        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "--bool", "true", "-", "foo" }), .{});
         try testing.expectEqual(2, result.unparsed_args.len);
     }
     {
-        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "-bool", "true", "--", "foo" }), .{});
+        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "--bool", "true", "--", "foo" }), .{});
         try testing.expectEqual(1, result.unparsed_args.len);
     }
     {
-        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "-bool", "--", "foo" }), .{});
+        const result = try flagset.parseFromSlice(&bool_flag, testArgs(&.{ "--bool", "--", "foo" }), .{});
         try testing.expectEqual(1, result.unparsed_args.len);
     }
 }
 
 test "parse bool" {
-    try expectParsed(&bool_flag, testArgs(&.{"-bool"}), .{ .bool = true });
     try expectParsed(&bool_flag, testArgs(&.{"--bool"}), .{ .bool = true });
-    try expectParsed(&bool_flag, testArgs(&.{"-no-bool"}), .{ .bool = false });
-    try expectParsed(&bool_flag, testArgs(&.{"-bool=true"}), .{ .bool = true });
-    try expectParsed(&bool_flag, testArgs(&.{"-bool=false"}), .{ .bool = false });
-    try expectParsed(&bool_flag, testArgs(&.{ "-bool", "false" }), .{ .bool = false });
-    try expectParsed(&bool_flag, testArgs(&.{ "-bool", "true" }), .{ .bool = true });
+    try expectParsed(&bool_flag, testArgs(&.{"--no-bool"}), .{ .bool = false });
+    try expectParsed(&bool_flag, testArgs(&.{"--bool=true"}), .{ .bool = true });
+    try expectParsed(&bool_flag, testArgs(&.{"--bool=false"}), .{ .bool = false });
+    try expectParsed(&bool_flag, testArgs(&.{ "--bool", "false" }), .{ .bool = false });
+    try expectParsed(&bool_flag, testArgs(&.{ "--bool", "true" }), .{ .bool = true });
 
     // non flag
     const result = try flagset.parseFromSlice(
         &.{.init(bool, "bool", .{ .default_value = &true })},
-        testArgs(&.{"-no-bool=true"}),
+        testArgs(&.{"--no-bool=true"}),
         .{},
     );
     try testing.expectEqual(1, result.unparsed_args.len);
 
-    // don't match flag names without a leading dash
+    // don't match flag names without two leading dashes
     try testing.expectError(
         error.MissingRequiredFlag,
         flagset.parseFromSlice(&bool_flag, testArgs(&.{"bool"}), .{}),
     );
     try testing.expectError(
         error.MissingRequiredFlag,
+        flagset.parseFromSlice(&bool_flag, testArgs(&.{"-bool"}), .{}),
+    );
+    try testing.expectError(
+        error.MissingRequiredFlag,
         flagset.parseFromSlice(&bool_flag, testArgs(&.{"no-bool"}), .{}),
+    );
+    try testing.expectError(
+        error.MissingRequiredFlag,
+        flagset.parseFromSlice(&bool_flag, testArgs(&.{"-no-bool"}), .{}),
     );
 }
 
 test "parse int" {
     const int_flag = [_]flagset.Flag{.init(i8, "int", .{})};
-    try expectParsed(&int_flag, testArgs(&.{"-int=10"}), .{ .int = 10 });
+    try expectParsed(&int_flag, testArgs(&.{"--int=10"}), .{ .int = 10 });
     try expectParsed(&int_flag, testArgs(&.{"--int=-10"}), .{ .int = -10 });
-    try expectParsed(&int_flag, testArgs(&.{ "-int", "10" }), .{ .int = 10 });
+    try expectParsed(&int_flag, testArgs(&.{ "--int", "10" }), .{ .int = 10 });
     try expectParsed(&int_flag, testArgs(&.{ "--int", "10" }), .{ .int = 10 });
     // bases
-    try expectParsed(&int_flag, testArgs(&.{"-int=0x10"}), .{ .int = 0x10 });
+    try expectParsed(&int_flag, testArgs(&.{"--int=0x10"}), .{ .int = 0x10 });
     try expectParsed(&int_flag, testArgs(&.{"--int=0b10"}), .{ .int = 0b10 });
     try expectParsed(&int_flag, testArgs(&.{ "--int", "0o10" }), .{ .int = 0o10 });
 }
 
 test "parse float" {
     const float_flag = [_]flagset.Flag{.init(f32, "float", .{})};
-    try expectParsed(&float_flag, testArgs(&.{"-float=10.0"}), .{ .float = 10.0 });
     try expectParsed(&float_flag, testArgs(&.{"--float=10.0"}), .{ .float = 10.0 });
-    try expectParsed(&float_flag, testArgs(&.{ "-float", "10.0" }), .{ .float = 10.0 });
+    try expectParsed(&float_flag, testArgs(&.{"--float=10.0"}), .{ .float = 10.0 });
+    try expectParsed(&float_flag, testArgs(&.{ "--float", "10.0" }), .{ .float = 10.0 });
     try expectParsed(&float_flag, testArgs(&.{ "--float", "10.0" }), .{ .float = 10.0 });
     try expectParsed(&float_flag, testArgs(&.{ "--float", "2718e28" }), .{ .float = 2718e28 });
 }
 
 test "parse enum" {
     const enum_flag = [_]flagset.Flag{.init(enum { foo, bar }, "enum", .{})};
-    try expectParsed(&enum_flag, testArgs(&.{"-enum=foo"}), .{ .@"enum" = .foo });
-    try expectParsed(&enum_flag, testArgs(&.{ "-enum", "bar" }), .{ .@"enum" = .bar });
+    try expectParsed(&enum_flag, testArgs(&.{"--enum=foo"}), .{ .@"enum" = .foo });
+    try expectParsed(&enum_flag, testArgs(&.{ "--enum", "bar" }), .{ .@"enum" = .bar });
 }
 
 test "parse string" {
     const string_flag = [_]flagset.Flag{.init([]const u8, "str", .{})};
     try testing.expectEqualStrings(
         "foo",
-        (try flagset.parseFromSlice(&string_flag, testArgs(&.{"-str=foo"}), .{})).parsed.str,
+        (try flagset.parseFromSlice(&string_flag, testArgs(&.{"--str=foo"}), .{})).parsed.str,
     );
     try testing.expectEqualStrings(
         "foo",
@@ -155,9 +162,9 @@ test "parse string" {
 
 test "parse optionals" {
     const opt_int_flag = [_]flagset.Flag{.init(?i8, "int", .{})};
-    try expectParsed(&opt_int_flag, testArgs(&.{"-no-int"}), .{ .int = null });
     try expectParsed(&opt_int_flag, testArgs(&.{"--no-int"}), .{ .int = null });
-    try expectParsed(&opt_int_flag, testArgs(&.{"-int=10"}), .{ .int = 10 });
+    try expectParsed(&opt_int_flag, testArgs(&.{"--no-int"}), .{ .int = null });
+    try expectParsed(&opt_int_flag, testArgs(&.{"--int=10"}), .{ .int = 10 });
 }
 
 test "required flags" {
@@ -171,18 +178,18 @@ test "required flags" {
     );
     try testing.expectError(
         error.MissingRequiredFlag,
-        flagset.parseFromSlice(&flags, testArgs(&.{"-int=0"}), .{}),
+        flagset.parseFromSlice(&flags, testArgs(&.{"--int=0"}), .{}),
     );
     try testing.expectError(
         error.MissingRequiredFlag,
-        flagset.parseFromSlice(&flags, testArgs(&.{"-bool"}), .{}),
+        flagset.parseFromSlice(&flags, testArgs(&.{"--bool"}), .{}),
     );
 }
 
 test "duplicate flags" {
     try testing.expectError(
         error.DuplicateFlag,
-        flagset.parseFromSlice(&bool_flag, testArgs(&.{ "-bool", "--no-bool" }), .{}),
+        flagset.parseFromSlice(&bool_flag, testArgs(&.{ "--bool", "--no-bool" }), .{}),
     );
 }
 
@@ -191,7 +198,7 @@ test "parse into ptrs" {
         var int: i8 = undefined;
         const result = try flagset.parseFromSlice(
             &[_]flagset.Flag{.init(i8, "int", .{})},
-            testArgs(&.{"-int=10"}),
+            testArgs(&.{"--int=10"}),
             .{ .ptrs = .{ .int = &int } },
         );
         try testing.expect(result.parsed.int != 10); // should be undefined
@@ -238,7 +245,7 @@ test "mixed positional args - any arg order" {
         .init(i8, "int2", .{ .kind = .positional }),
         .init(i8, "int3", .{ .kind = .positional }),
     };
-    const args = [_][]const [:0]const u8{ &.{ "-int1", "1" }, &.{"2"}, &.{"3"} };
+    const args = [_][]const [:0]const u8{ &.{ "--int1", "1" }, &.{"2"}, &.{"3"} };
     const P = flagset.Parsed(&flags);
     const expected = P{ .int1 = 1, .int2 = 2, .int3 = 3 };
     const expected2 = P{ .int1 = 1, .int2 = 3, .int3 = 2 };
@@ -305,31 +312,50 @@ test "short names" {
     const flags = [_]flagset.Flag{
         .init([]const u8, "host", .{ .kind = .positional }),
         .init(u16, "port", .{ .short = 'p' }),
+        .init(?u16, "format", .{ .short = 'f', .default_value = &@as(?u16, null) }),
     };
-    const result2 = try flagset.parseFromSlice(&flags, &.{ "ssh", "server.com", "--port", "2222" }, .{});
-    try testing.expectEqualStrings("server.com", result2.parsed.host);
-    try testing.expectEqual(2222, result2.parsed.port);
-    const result = try flagset.parseFromSlice(&flags, &.{ "ssh", "server.com", "-p", "2222" }, .{});
-    try testing.expectEqualStrings("server.com", result.parsed.host);
-    try testing.expectEqual(2222, result.parsed.port);
+    try expectParsed(
+        &flags,
+        &.{ "ssh", "server.com", "--port", "2222" },
+        .{ .host = "server.com", .port = 2222, .format = null },
+    );
+    try expectParsed(
+        &flags,
+        &.{ "ssh", "server.com", "-p", "2222" },
+        .{ .host = "server.com", .port = 2222, .format = null },
+    );
+    try expectParsed(
+        &flags,
+        &.{ "ssh", "server.com", "-p=2222" },
+        .{ .host = "server.com", .port = 2222, .format = null },
+    );
+    try expectParsed(
+        &flags,
+        &.{ "ssh", "server.com", "-p", "2222", "-f", "42" },
+        .{ .host = "server.com", .port = 2222, .format = 42 },
+    );
 
     // should fail to recognize shorts with double dash and stop parsing
     try testing.expectError(
         error.MissingRequiredFlag,
         flagset.parseFromSlice(&flags, &.{ "ssh", "server.com", "--p", "2222" }, .{}),
     );
-    const result3 = try flagset.parseFromSlice(
+    const result = try flagset.parseFromSlice(
         &.{.init(u8, "int", .{ .short = 'i', .default_value = &@as(u8, 0) })},
         testArgs(&.{ "--i", "2222" }),
         .{},
     );
-    try testing.expectEqual(0, result3.parsed.int);
-    try testing.expectEqual(2, result3.unparsed_args.len);
+    try testing.expectEqual(0, result.parsed.int);
+    try testing.expectEqual(2, result.unparsed_args.len);
 }
 
 test "one letter non-short name" {
-    try expectParsed(&.{.init(u16, "p", .{})}, testArgs(&.{ "-p", "2222" }), .{ .p = 2222 });
-    try expectParsed(&.{.init(u16, "p", .{})}, testArgs(&.{ "--p", "2222" }), .{ .p = 2222 });
+    const flags = [_]flagset.Flag{.init(u16, "p", .{})};
+    try expectParsed(&flags, testArgs(&.{ "--p", "2222" }), .{ .p = 2222 });
+    try testing.expectError(
+        error.MissingRequiredFlag,
+        flagset.parseFromSlice(&flags, &.{ "-p", "2222" }, .{}),
+    );
 }
 
 test "codepoint" {
@@ -360,7 +386,7 @@ test "parseFn" {
         }),
     };
     const ip = "127.0.0.1";
-    const result = try flagset.parseFromSlice(&flags, testArgs(&.{ "-ip", ip }), .{});
+    const result = try flagset.parseFromSlice(&flags, testArgs(&.{ "--ip", ip }), .{});
     const expected = std.net.Address.parseIp(ip, 0) catch unreachable;
     try testing.expect(expected.eql(result.parsed.ip));
 
@@ -548,7 +574,7 @@ test "fmtParsed - round trip" {
     try testing.expectEqualStrings(result.parsed.@"pos-str", result3.parsed.@"pos-str");
 }
 
-test "SmallSet" {
+test "StaticBitsetMap" {
     _ = flagset.StaticBitsetMap(std.math.maxInt(u16), u8).initEmpty(undefined);
     _ = flagset.StaticBitsetMap(0, u8).initEmpty(undefined);
     { // getIndex

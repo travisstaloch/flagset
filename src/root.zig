@@ -354,17 +354,16 @@ pub fn parseFromIter(
 
         // match key
         var mfield_enum: ?FieldEnum = null;
-        if (leading_dashes != .none) {
+        if (leading_dashes == .two) {
             // match long names first
             mfield_enum = stringToEnum(FieldEnum, key);
             if (mfield_enum == null and key.len == 1) {
                 // shorts must have single dash like '-b' and not '--b'
-                if (leading_dashes == .two) {
-                    args_iter_mut = args_iter_prev;
-                    break;
-                }
-                if (shorts.get(key[0])) |field_enum| mfield_enum = field_enum;
+                args_iter_mut = args_iter_prev;
+                break;
             }
+        } else if (leading_dashes == .one and key.len == 1) {
+            if (shorts.get(key[0])) |field_enum| mfield_enum = field_enum;
         }
 
         if (mfield_enum) |field_enum| {
@@ -794,9 +793,8 @@ fn fmtParsedVal(
 }
 
 fn debug(comptime fmt: []const u8, args: anytype) void {
-    _ = fmt; // autofix
-    _ = args; // autofix
-    // log.debug(fmt, args);
+    if (false)
+        log.debug(fmt, args);
 }
 
 const log = std.log.scoped(.flags);
