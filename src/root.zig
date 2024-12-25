@@ -356,7 +356,7 @@ pub fn parseFromIter(
         var mfield_enum: ?FieldEnum = null;
         if (leading_dashes == .two) {
             // match long names first
-            mfield_enum = stringToEnum(FieldEnum, key);
+            mfield_enum = std.meta.stringToEnum(FieldEnum, key);
             if (mfield_enum == null and key.len == 1) {
                 // shorts must have single dash like '-b' and not '--b'
                 args_iter_mut = args_iter_prev;
@@ -748,19 +748,6 @@ fn isZigString(comptime T: type) bool {
         // }
         break :blk false;
     };
-}
-
-// ISSUE(https://github.com/ziglang/zig/issues/20310): Calling `std.meta.stringToEnum` directly
-// fails to compile under the current version of Zig if the struct only has a single argument. This
-// wrapper works around the issue.
-fn stringToEnum(comptime T: type, str: []const u8) ?T {
-    if (@typeInfo(T).@"enum".fields.len == 1) {
-        if (std.mem.eql(u8, str, @typeInfo(T).@"enum".fields[0].name)) {
-            return @enumFromInt(@typeInfo(T).@"enum".fields[0].value);
-        }
-        return null;
-    }
-    return std.meta.stringToEnum(T, str);
 }
 
 fn unsupportedType(comptime T: type) noreturn {
