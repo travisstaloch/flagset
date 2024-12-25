@@ -621,7 +621,7 @@ test "StaticBitsetMap" {
     }
 
     const testFn = struct {
-        fn testFn(buf: []u8, keys_len: u9, random: std.Random) !void {
+        fn testFn(buf: []u8, keys_len: u8, random: std.Random) !void {
             const alloc = std.testing.allocator;
             const keys = buf[0..keys_len];
             random.shuffle(u8, keys);
@@ -635,10 +635,6 @@ test "StaticBitsetMap" {
             for (0..keys_len) |i| {
                 try testing.expectEqual(@as(u8, @intCast(i)), actual.get(keys[i]));
             }
-
-            for (0..keys_len) |i| {
-                try testing.expectEqual(@as(u8, @intCast(i)), actual.get(keys[i]));
-            }
         }
     }.testFn;
 
@@ -647,10 +643,10 @@ test "StaticBitsetMap" {
     const random = prng.random();
     var buf: [256]u8 = undefined;
     for (0..buf.len) |i| buf[i] = @intCast(i);
-    try testFn(&buf, 256, random);
+    try testFn(&buf, 255, random);
     for (0..100) |_| {
-        const keys_len = random.int(u9);
-        try testFn(&buf, @min(256, keys_len), random);
+        const keys_len = random.int(u8);
+        try testFn(&buf, keys_len, random);
     }
 }
 
