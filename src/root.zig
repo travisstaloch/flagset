@@ -720,7 +720,6 @@ fn checkHelp(arg: []const u8) error{HelpRequested}!void {
     const n = mem.readInt(u48, &buf, .big);
     switch (n) {
         mem.readInt(u48, "-h\x00\x00\x00\x00", .big),
-        mem.readInt(u48, "-help", .big),
         mem.readInt(u48, "--help", .big),
         => return error.HelpRequested,
         else => {},
