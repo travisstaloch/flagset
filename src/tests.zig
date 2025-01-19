@@ -25,22 +25,22 @@ test "Parsed" {
     const fields = @typeInfo(Parsed).@"struct".fields;
     try testing.expectEqual(bool, fields[0].type);
     try testing.expectEqual("bool", fields[0].name);
-    try testing.expectEqual(null, fields[0].default_value);
+    try testing.expectEqual(null, fields[0].defaultValue());
 }
 
 test "default values" {
     try expectParsed(
-        &[_]flagset.Flag{.init(bool, "bool", .{ .default_value = &true })},
+        &[_]flagset.Flag{.init(bool, "bool", .{ .default_value_ptr = &true })},
         testArgs(&.{}),
         .{ .bool = true },
     );
     try expectParsed(
-        &[_]flagset.Flag{.init(u8, "u8", .{ .default_value = &@as(u8, 10) })},
+        &[_]flagset.Flag{.init(u8, "u8", .{ .default_value_ptr = &@as(u8, 10) })},
         testArgs(&.{}),
         .{ .u8 = 10 },
     );
     try expectParsed(
-        &[_]flagset.Flag{.init(?u8, "u8", .{ .default_value = &@as(?u8, null) })},
+        &[_]flagset.Flag{.init(?u8, "u8", .{ .default_value_ptr = &@as(?u8, null) })},
         testArgs(&.{}),
         .{ .u8 = null },
     );
@@ -92,7 +92,7 @@ test "parse bool" {
 
     // non flag
     const result = try flagset.parseFromSlice(
-        &.{.init(bool, "bool", .{ .default_value = &true })},
+        &.{.init(bool, "bool", .{ .default_value_ptr = &true })},
         testArgs(&.{"--no-bool=true"}),
         .{},
     );
@@ -217,7 +217,7 @@ test "parse into ptrs" {
     { // default value
         var int: i8 = undefined;
         const result = try flagset.parseFromSlice(
-            &[_]flagset.Flag{.init(i8, "int", .{ .default_value = &@as(i8, 10) })},
+            &[_]flagset.Flag{.init(i8, "int", .{ .default_value_ptr = &@as(i8, 10) })},
             testArgs(&.{}),
             .{ .ptrs = .{ .int = &int } },
         );
@@ -290,7 +290,7 @@ test "command composition" {
 
     const push_flagset = [_]flagset.Flag{
         .init([]const u8, "remote", .{ .kind = .positional }),
-        .init(bool, "force", .{ .default_value = &false }),
+        .init(bool, "force", .{ .default_value_ptr = &false }),
     };
     switch (result.parsed.cmd) {
         .push => {
@@ -312,7 +312,7 @@ test "short names" {
     const flags = [_]flagset.Flag{
         .init([]const u8, "host", .{ .kind = .positional }),
         .init(u16, "port", .{ .short = 'p' }),
-        .init(?u16, "format", .{ .short = 'f', .default_value = &@as(?u16, null) }),
+        .init(?u16, "format", .{ .short = 'f', .default_value_ptr = &@as(?u16, null) }),
     };
     try expectParsed(
         &flags,
@@ -341,7 +341,7 @@ test "short names" {
         flagset.parseFromSlice(&flags, &.{ "ssh", "server.com", "--p", "2222" }, .{}),
     );
     const result = try flagset.parseFromSlice(
-        &.{.init(u8, "int", .{ .short = 'i', .default_value = &@as(u8, 0) })},
+        &.{.init(u8, "int", .{ .short = 'i', .default_value_ptr = &@as(u8, 0) })},
         testArgs(&.{ "--i", "2222" }),
         .{},
     );
@@ -443,7 +443,7 @@ test "parseFn misc" {
                     return error.NonFlagArgument;
                 }
             }.parseFn),
-            .default_value = &@as(I, 0),
+            .default_value_ptr = &@as(I, 0),
         }),
     }, testArgs(&.{ "--foo", "42" }), .{});
     try testing.expectEqual(2, result2.unparsed_args.len);
@@ -654,7 +654,7 @@ test "combined shorts" {
     const flags = [_]flagset.Flag{
         .init(bool, "fa", .{ .short = 'a' }),
         .init(bool, "fb", .{ .short = 'b' }),
-        .init(bool, "fc", .{ .short = 'c', .default_value = &false }),
+        .init(bool, "fc", .{ .short = 'c', .default_value_ptr = &false }),
     };
     try expectParsed(&flags, testArgs(&.{"-abc"}), .{ .fa = true, .fb = true, .fc = true });
     try expectParsed(&flags, testArgs(&.{"-ab"}), .{ .fa = true, .fb = true, .fc = false });

@@ -1,4 +1,5 @@
 const std = @import("std");
+
 const flagset = @import("flagset");
 
 pub fn main() !void {
@@ -9,7 +10,7 @@ pub fn main() !void {
         .init(?[]const u8, "opt-string", .{ .short = 's', .desc = "opt-string description" }),
         .init([]const u8, "string", .{ .desc = "string description" }),
         .init([]const u8, "pos-str", .{ .kind = .positional, .desc = "pos-str description" }),
-        .init(u8, "with-default", .{ .desc = "with-default description", .default_value = &@as(u8, 10) }),
+        .init(u8, "with-default", .{ .desc = "with-default description", .default_value_ptr = &@as(u8, 10) }),
     };
 
     var args = try std.process.argsWithAllocator(std.heap.page_allocator); // TODO use a better allocator

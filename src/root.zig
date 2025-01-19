@@ -24,13 +24,19 @@ pub const Flag = struct {
         return if (flag.options.parseFn) |f| @alignCast(@ptrCast(f)) else null;
     }
 
+    pub inline fn defaultValue(comptime flag: Flag) ?flag.type {
+        const ptr = flag.options.default_value_ptr orelse return null;
+        const casted: *const flag.type = @alignCast(@ptrCast(ptr));
+        return casted.*;
+    }
+
     pub const Options = struct {
         /// usage description which appears after flag name and type
         desc: ?[]const u8 = null,
         /// short name. i.e. 'b'
         short: ?u8 = null,
         /// default value.  when provided this flag is optional.
-        default_value: ?*const anyopaque = null,
+        default_value_ptr: ?*const anyopaque = null,
         /// positional flags don't require a name and will be parsed in
         /// declared order.
         kind: enum { positional, named } = .named,
@@ -169,7 +175,7 @@ pub inline fn Parsed(comptime flags: []const Flag) type {
             fields = fields ++ .{StructField{
                 .type = flag.type,
                 .name = flag.name,
-                .default_value = null,
+                .default_value_ptr = null,
                 .is_comptime = false,
                 .alignment = 0,
             }};
@@ -199,7 +205,7 @@ pub fn ParsedPtrs(
             fields = fields ++ .{StructField{
                 .type = T,
                 .name = flag.name,
-                .default_value = default_ptr,
+                .default_value_ptr = default_ptr,
                 .is_comptime = false,
                 .alignment = 0,
             }};
@@ -471,8 +477,7 @@ pub fn parseFromIter(
         switch (missing_flag) {
             inline else => |inline_fe| {
                 const flag = flags[@intFromEnum(inline_fe)];
-                if (flag.options.default_value) |default| {
-                    const default_value = @as(*const flag.type, @alignCast(@ptrCast(default))).*;
+                if (flag.defaultValue()) |default_value| {
                     const name = @tagName(inline_fe);
 
                     if (@field(parse_options.ptrs, name)) |ptr|
@@ -735,7 +740,7 @@ fn isZigString(comptime T: type) bool {
         // Check for CV qualifiers that would prevent coerction to []const u8
         if (ptr.is_volatile or ptr.is_allowzero) break :blk false;
         // If it's already a slice, simple check.
-        if (ptr.size == .Slice) break :blk ptr.child == u8;
+        if (ptr.size == .slice) break :blk ptr.child == u8;
 
         // Otherwise check if it's an array type that coerces to slice.
         // if (ptr.size == .One) {
