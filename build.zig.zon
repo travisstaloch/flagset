@@ -1,9 +1,9 @@
 .{
-    .name = "flagset",
+    .name = .flagset,
     .version = "0.0.1",
     .minimum_zig_version = "0.14.0",
     .dependencies = .{},
-
+    .fingerprint = 0x11ca0409858e5901,
     .paths = .{
         "build.zig",
         "build.zig.zon",

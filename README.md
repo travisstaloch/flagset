@@ -94,3 +94,6 @@ unparsed args: --foo --bar
 # references
 * https://github.com/Games-by-Mason/structopt
 * https://pkg.go.dev/flag
+
+# todo
+* support parsing lists
