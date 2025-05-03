@@ -16,7 +16,8 @@ Simplicity, fast compile times, and small binary size with measured use of compt
 * abbreviated short bool flags: '-abc' is parsed the same as '-a -b -c'
 * accept command line args as slice or iterator with `parseFromSlice()` and `parseFromIter()`
   * supports any iterator with a `fn next() ?[]const u8` such as `std.process.args()`, `std.mem.tokenize()`, `std.mem.split()`
-* supports parsing repeated flags into lists.  see `Flag.Options.is_list` doc comments and tests.
+* supports parsing repeated flags into lists when `flag.options.kind == .list`. see `Flag.Options.kind` doc comments and tests.
+
 # use
 ```console
 zig fetch --save git+https://github.com/travisstaloch/flagset
@@ -46,13 +47,14 @@ pub fn main() !void {
         .init([]const u8, "string", .{ .desc = "string description" }),
         .init([]const u8, "pos-str", .{ .kind = .positional, .desc = "pos-str description" }),
         .init(u8, "with-default", .{ .desc = "with-default description", .default_value_ptr = &@as(u8, 10) }),
-        .init([]const u8, "list", .{ .is_list = true, .desc = "list description" }),
+        .init([]const u8, "list", .{ .desc = "list description", .kind = .list }),
     };
 
-    var args = try std.process.argsWithAllocator(std.heap.page_allocator); // TODO use a better allocator
+    const alloc = std.heap.page_allocator; // TODO use a better allocator
+    var args = try std.process.argsWithAllocator(alloc);
     defer args.deinit();
 
-    var result = flagset.parseFromIter(&flags, args, .{}) catch |e| switch (e) {
+    var result = flagset.parseFromIter(&flags, args, .{ .allocator = alloc }) catch |e| switch (e) {
         error.HelpRequested => {
             std.debug.print("{: <45}", .{flagset.fmtUsage(&flags, .full,
                 \\

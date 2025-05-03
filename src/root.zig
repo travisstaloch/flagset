@@ -39,29 +39,29 @@ pub const Flag = struct {
         default_value_ptr: ?*const anyopaque = null,
         /// positional flags don't require a name and will be parsed in
         /// declared order.
-        kind: enum { positional, named } = .named,
+        ///
+        /// list flags are accumulated into and will become a
+        /// `std.ArrayListUnmanaged(<field>.type))`.  user must provide a
+        /// `parse_options.allocator` and then call
+        /// `parse_result.parsed.<field>.deinit()` or
+        /// `parse_result.deinit()` with the same allocator.
+        /// list flags are treated as optional.
+        // TODO maybe allow list fields to be required?
+        kind: enum { positional, named, list } = .named,
         /// allow an integer flag to be parsed from a utf8 string such as 'a' or '👏'
         int_from_utf8: bool = false,
         /// a custom parse function.  because this is type erased, you should
         /// pass `checkParseFn(myParseFn)` to verify its signature.
         parseFn: ?*const anyopaque = null,
-        /// whether this flag should be treated as a list and accumulated into.
-        /// when true, this field will become a
-        /// `std.ArrayListUnmanaged(<field>.type))`.  user must provide a
-        /// `parse_options.allocator` and then call
-        /// `parse_result.parsed.<field>.deinit()` or
-        /// `parse_result.deinit()` with the same allocator.
-        /// list fields are treated as optional for now.
-        is_list: bool = false,
     };
 
     fn fmtFlagType(flag: Flag, cw: anytype, comptime T: type) !void {
-        if (flag.options.kind == .named)
+        if (flag.options.kind != .positional)
             try cw.writeAll(" <")
         else
             try cw.writeAll(":");
         try cw.writeAll(if (comptime isZigString(T)) "string" else @typeName(T));
-        if (flag.options.kind == .named) try cw.writeByte('>');
+        if (flag.options.kind != .positional) try cw.writeByte('>');
     }
 
     pub fn format(
@@ -112,8 +112,10 @@ pub const Flag = struct {
             },
         }
 
-        if (flag.options.kind == .positional) try cw.writeByte('>');
-        if (flag.options.is_list) try cw.writeAll(" (many)");
+        if (flag.options.kind == .positional)
+            try cw.writeByte('>')
+        else if (flag.options.kind == .list)
+            try cw.writeAll(" (many)");
 
         if (flag.options.desc) |desc| {
             const width = options.width orelse 25;
@@ -172,8 +174,6 @@ fn validateFlag(flag: Flag, i: usize, fields: []const std.builtin.Type.StructFie
     const info = @typeInfo(flag.type);
     if (flag.options.int_from_utf8 and info != .int)
         invalidFlagError(flag, i, "options.int_from_utf8 requires integer type");
-    if (flag.options.is_list and flag.options.kind == .positional)
-        invalidFlagError(flag, i, "list flags may not be positional");
 }
 
 /// a struct with field names and types from 'flags'
@@ -184,7 +184,7 @@ pub inline fn Parsed(comptime flags: []const Flag) type {
         for (flags, 0..) |flag, i| {
             validateFlag(flag, i, fields);
             fields = fields ++ .{StructField{
-                .type = if (flag.options.is_list)
+                .type = if (flag.options.kind == .list)
                     std.ArrayListUnmanaged(flag.type)
                 else
                     flag.type,
@@ -213,7 +213,7 @@ pub fn ParsedPtrs(
         var fields: []const StructField = &.{};
         for (flags, 0..) |flag, i| {
             validateFlag(flag, i, fields);
-            const T = ?if (flag.options.is_list)
+            const T = ?if (flag.options.kind == .list)
                 *std.ArrayListUnmanaged(flag.type)
             else if (mutability == .@"const")
                 *const flag.type
@@ -245,7 +245,7 @@ pub fn ParseResult(comptime flags: []const Flag, comptime RestArgs: type) type {
 
         pub fn deinit(result: *@This(), allocator: mem.Allocator) void {
             inline for (flags) |flag| {
-                if (flag.options.is_list) {
+                if (flag.options.kind == .list) {
                     @field(result.parsed, flag.name).deinit(allocator);
                 }
             }
@@ -323,14 +323,14 @@ pub fn parseFromIter(
     var parsed: P = undefined;
     var seen_flags = std.enums.EnumSet(FieldEnum).initEmpty();
     inline for (flags, 0..) |flag, i| {
-        if (flag.options.is_list) {
+        if (flag.options.kind == .list) {
             @field(parsed, flag.name) = .{};
             seen_flags.insert(@enumFromInt(i));
         }
     }
     errdefer {
         inline for (flags) |flag| {
-            if (flag.options.is_list) {
+            if (flag.options.kind == .list) {
                 if (parse_options.allocator) |allocator| @field(parsed, flag.name).deinit(allocator);
             }
         }
@@ -419,7 +419,7 @@ pub fn parseFromIter(
                 inline else => |inline_fe| {
                     const flag = flags[@intFromEnum(inline_fe)];
                     const is_seen_field = seen_flags.contains(field_enum);
-                    if (!flag.options.is_list and is_seen_field) return error.DuplicateFlag;
+                    if (flag.options.kind != .list and is_seen_field) return error.DuplicateFlag;
 
                     parsed_flags.int_from_utf8 = flag.options.int_from_utf8;
 
@@ -438,12 +438,12 @@ pub fn parseFromIter(
 
                     const name = @tagName(inline_fe);
                     if (@field(parse_options.ptrs, name)) |ptr| {
-                        if (flag.options.is_list) {
+                        if (flag.options.kind == .list) {
                             if (parse_options.allocator) |allocator| {
                                 try ptr.append(allocator, parsed_value);
                             } else return error.AllocatorRequired;
                         } else ptr.* = parsed_value;
-                    } else if (flag.options.is_list) {
+                    } else if (flag.options.kind == .list) {
                         if (parse_options.allocator) |allocator| {
                             try @field(parsed, name).append(allocator, parsed_value);
                         } else return error.AllocatorRequired;
@@ -727,7 +727,7 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
                 else
                     @field(self.parsed, flag.name);
 
-                if (flag.options.kind == .named) {
+                if (flag.options.kind != .positional) {
                     try writer.writeAll("--");
                     switch (@typeInfo(@TypeOf(value))) {
                         .bool => {
@@ -742,7 +742,7 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
                                 try writer.writeAll(flag.name);
                             }
                         },
-                        else => if (flag.options.is_list) {
+                        else => if (flag.options.kind == .list) {
                             for (value.items, 0..) |item, j| {
                                 if (j != 0) try writer.writeAll(" --");
                                 try writer.writeAll(flag.name);

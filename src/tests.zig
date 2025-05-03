@@ -456,7 +456,7 @@ const fmt_flagset = [_]flagset.Flag{
     .init(?[]const u8, "opt-string", .{ .desc = "opt-string help", .short = 's' }),
     .init([]const u8, "string", .{ .desc = "string help" }),
     .init([]const u8, "pos-str", .{ .desc = "pos-str help", .kind = .positional }),
-    .init([]const u8, "list", .{ .is_list = true, .desc = "list help" }),
+    .init([]const u8, "list", .{ .desc = "list help", .kind = .list }),
 };
 
 test "fmtUsage" {
@@ -682,7 +682,7 @@ test "combined shorts" {
 
 test "list" {
     const flags = [_]flagset.Flag{
-        .init([]const u8, "list", .{ .is_list = true, .short = 'l' }),
+        .init([]const u8, "list", .{ .kind = .list, .short = 'l' }),
     };
     {
         const result = try flagset.parseFromSlice(&flags, testArgs(&.{}), .{});
@@ -715,7 +715,7 @@ test "list parse into ptrs" {
     var list: std.ArrayListUnmanaged([]const u8) = .{};
     defer list.deinit(std.testing.allocator);
     const flags = [_]flagset.Flag{
-        .init([]const u8, "list", .{ .is_list = true }),
+        .init([]const u8, "list", .{ .kind = .list }),
     };
     _ = try flagset.parseFromSlice(
         &flags,
@@ -729,8 +729,8 @@ test "memory safety" {
     try std.testing.checkAllAllocationFailures(testing.allocator, struct {
         fn testFn(alloc: std.mem.Allocator) !void {
             const flags = [_]flagset.Flag{
-                .init(i8, "l1", .{ .is_list = true }),
-                .init(bool, "l2", .{ .is_list = true }),
+                .init(i8, "l1", .{ .kind = .list }),
+                .init(bool, "l2", .{ .kind = .list }),
             };
             var result = try flagset.parseFromSlice(
                 &flags,
