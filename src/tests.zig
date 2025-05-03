@@ -724,3 +724,20 @@ test "list parse into ptrs" {
     );
     try testing.expectEqualSlices([]const u8, &.{ "foo", "bar" }, list.items);
 }
+
+test "memory safety" {
+    try std.testing.checkAllAllocationFailures(testing.allocator, struct {
+        fn testFn(alloc: std.mem.Allocator) !void {
+            const flags = [_]flagset.Flag{
+                .init(i8, "l1", .{ .is_list = true }),
+                .init(bool, "l2", .{ .is_list = true }),
+            };
+            var result = try flagset.parseFromSlice(
+                &flags,
+                testArgs(&.{ "--l1", "10", "--l2", "true", "--l1", "20", "-l2", "false" }),
+                .{ .allocator = alloc },
+            );
+            defer result.deinit(alloc);
+        }
+    }.testFn, .{});
+}

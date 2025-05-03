@@ -328,6 +328,14 @@ pub fn parseFromIter(
             seen_flags.insert(@enumFromInt(i));
         }
     }
+    errdefer {
+        inline for (flags) |flag| {
+            if (flag.options.is_list) {
+                if (parse_options.allocator) |allocator| @field(parsed, flag.name).deinit(allocator);
+            }
+        }
+    }
+
     var args_iter_prev = args_iter_mut;
     args: while (args_iter_mut.next()) |arg| : (args_iter_prev = args_iter_mut) {
         assert(arg.len > 0);

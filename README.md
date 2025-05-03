@@ -16,7 +16,7 @@ Simplicity, fast compile times, and small binary size with measured use of compt
 * abbreviated short bool flags: '-abc' is parsed the same as '-a -b -c'
 * accept command line args as slice or iterator with `parseFromSlice()` and `parseFromIter()`
   * supports any iterator with a `fn next() ?[]const u8` such as `std.process.args()`, `std.mem.tokenize()`, `std.mem.split()`
-  * supports parsing repeated flags into lists.  see `Flag.Options.is_list` doc comments and tests.
+* supports parsing repeated flags into lists.  see `Flag.Options.is_list` doc comments and tests.
 # use
 ```console
 zig fetch --save git+https://github.com/travisstaloch/flagset
@@ -87,7 +87,7 @@ options:
   --list <string> (many)                     list description
 
 $ zig build demo -- --flag --count 10 two --no-opt-string --string "s" pos-str --list foo --list bar --foo --bar
-parsed: --flag --count 10 two --no-opt-string --string s pos-str --with-default 10 -- list foo --list bar
+parsed: --flag --count 10 two --no-opt-string --string s pos-str --with-default 10 --list foo --list bar
 unparsed args: --foo --bar 
 
 ```
@@ -100,4 +100,3 @@ unparsed args: --foo --bar
 * https://pkg.go.dev/flag
 
 # todo
-* memory safety - add test with testing.checkAllAllocationFailures()
