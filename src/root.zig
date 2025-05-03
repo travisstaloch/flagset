@@ -45,6 +45,14 @@ pub const Flag = struct {
         /// a custom parse function.  because this is type erased, you should
         /// pass `checkParseFn(myParseFn)` to verify its signature.
         parseFn: ?*const anyopaque = null,
+        /// whether this flag should be treated as a list and accumulated into.
+        /// when true, this field will become a
+        /// `std.ArrayListUnmanaged(<field>.type))`.  user must provide a
+        /// `parse_options.allocator` and then call
+        /// `parse_result.parsed.<field>.deinit()` or
+        /// `parse_result.deinit()` with the same allocator.
+        /// list fields are treated as optional for now.
+        is_list: bool = false,
     };
 
     fn fmtFlagType(flag: Flag, cw: anytype, comptime T: type) !void {
@@ -105,6 +113,7 @@ pub const Flag = struct {
         }
 
         if (flag.options.kind == .positional) try cw.writeByte('>');
+        if (flag.options.is_list) try cw.writeAll(" (many)");
 
         if (flag.options.desc) |desc| {
             const width = options.width orelse 25;
@@ -163,6 +172,8 @@ fn validateFlag(flag: Flag, i: usize, fields: []const std.builtin.Type.StructFie
     const info = @typeInfo(flag.type);
     if (flag.options.int_from_utf8 and info != .int)
         invalidFlagError(flag, i, "options.int_from_utf8 requires integer type");
+    if (flag.options.is_list and flag.options.kind == .positional)
+        invalidFlagError(flag, i, "list flags may not be positional");
 }
 
 /// a struct with field names and types from 'flags'
@@ -173,7 +184,10 @@ pub inline fn Parsed(comptime flags: []const Flag) type {
         for (flags, 0..) |flag, i| {
             validateFlag(flag, i, fields);
             fields = fields ++ .{StructField{
-                .type = flag.type,
+                .type = if (flag.options.is_list)
+                    std.ArrayListUnmanaged(flag.type)
+                else
+                    flag.type,
                 .name = flag.name,
                 .default_value_ptr = null,
                 .is_comptime = false,
@@ -199,13 +213,17 @@ pub fn ParsedPtrs(
         var fields: []const StructField = &.{};
         for (flags, 0..) |flag, i| {
             validateFlag(flag, i, fields);
-            const T = ?if (mutability == .@"const") *const flag.type else *flag.type;
+            const T = ?if (flag.options.is_list)
+                *std.ArrayListUnmanaged(flag.type)
+            else if (mutability == .@"const")
+                *const flag.type
+            else
+                *flag.type;
             const default: T = null;
-            const default_ptr: ?*const anyopaque = @ptrCast(&default);
             fields = fields ++ .{StructField{
                 .type = T,
                 .name = flag.name,
-                .default_value_ptr = default_ptr,
+                .default_value_ptr = @ptrCast(&default),
                 .is_comptime = false,
                 .alignment = 0,
             }};
@@ -224,6 +242,14 @@ pub fn ParseResult(comptime flags: []const Flag, comptime RestArgs: type) type {
         parsed: Parsed(flags),
         /// remaing, unparsed args
         unparsed_args: RestArgs,
+
+        pub fn deinit(result: *@This(), allocator: mem.Allocator) void {
+            inline for (flags) |flag| {
+                if (flag.options.is_list) {
+                    @field(result.parsed, flag.name).deinit(allocator);
+                }
+            }
+        }
     };
 }
 
@@ -255,13 +281,14 @@ pub const ParseError = error{
     MissingRequiredFlag,
     /// -h or --help was found
     HelpRequested,
-} ||
-    std.fmt.ParseIntError;
+    AllocatorRequired,
+} || std.fmt.ParseIntError || mem.Allocator.Error;
 
 pub fn ParseOptions(comptime flags: []const Flag) type {
     return struct {
         flags: Flags = .{},
         ptrs: ParsedPtrs(flags, .mut) = .{},
+        allocator: ?mem.Allocator = null,
         const Flags = packed struct(u8) {
             skip_first_arg: bool = true,
             _padding: u7 = undefined,
@@ -295,6 +322,12 @@ pub fn parseFromIter(
 
     var parsed: P = undefined;
     var seen_flags = std.enums.EnumSet(FieldEnum).initEmpty();
+    inline for (flags, 0..) |flag, i| {
+        if (flag.options.is_list) {
+            @field(parsed, flag.name) = .{};
+            seen_flags.insert(@enumFromInt(i));
+        }
+    }
     var args_iter_prev = args_iter_mut;
     args: while (args_iter_mut.next()) |arg| : (args_iter_prev = args_iter_mut) {
         assert(arg.len > 0);
@@ -374,10 +407,12 @@ pub fn parseFromIter(
 
         if (mfield_enum) |field_enum| {
             debug("match {s} flag {s}", .{ arg, @tagName(field_enum) });
-            if (seen_flags.contains(field_enum)) return error.DuplicateFlag;
             switch (field_enum) {
                 inline else => |inline_fe| {
                     const flag = flags[@intFromEnum(inline_fe)];
+                    const is_seen_field = seen_flags.contains(field_enum);
+                    if (!flag.options.is_list and is_seen_field) return error.DuplicateFlag;
+
                     parsed_flags.int_from_utf8 = flag.options.int_from_utf8;
 
                     const merr = if (comptime flag.parseFn()) |parseFn|
@@ -394,10 +429,17 @@ pub fn parseFromIter(
                     };
 
                     const name = @tagName(inline_fe);
-                    if (@field(parse_options.ptrs, name)) |ptr|
-                        ptr.* = parsed_value
-                    else
-                        @field(parsed, name) = parsed_value;
+                    if (@field(parse_options.ptrs, name)) |ptr| {
+                        if (flag.options.is_list) {
+                            if (parse_options.allocator) |allocator| {
+                                try ptr.append(allocator, parsed_value);
+                            } else return error.AllocatorRequired;
+                        } else ptr.* = parsed_value;
+                    } else if (flag.options.is_list) {
+                        if (parse_options.allocator) |allocator| {
+                            try @field(parsed, name).append(allocator, parsed_value);
+                        } else return error.AllocatorRequired;
+                    } else @field(parsed, name) = parsed_value;
 
                     seen_flags.insert(field_enum);
                     continue :args;
@@ -692,7 +734,14 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
                                 try writer.writeAll(flag.name);
                             }
                         },
-                        else => {
+                        else => if (flag.options.is_list) {
+                            for (value.items, 0..) |item, j| {
+                                if (j != 0) try writer.writeAll(" --");
+                                try writer.writeAll(flag.name);
+                                try writer.writeByte(' ');
+                                try fmtParsedVal(item, fmt, options, writer);
+                            }
+                        } else {
                             try writer.writeAll(flag.name);
                             try writer.writeByte(' ');
                             try fmtParsedVal(value, fmt, options, writer);
@@ -754,7 +803,7 @@ fn isZigString(comptime T: type) bool {
     };
 }
 
-fn unsupportedType(comptime T: type) noreturn {
+inline fn unsupportedType(comptime T: type) noreturn {
     const info = @typeInfo(T);
     @compileError("unsupported type '" ++ @typeName(T) ++ "' with tag '" ++ @tagName(info) ++ "'");
 }

@@ -11,12 +11,14 @@ pub fn main() !void {
         .init([]const u8, "string", .{ .desc = "string description" }),
         .init([]const u8, "pos-str", .{ .kind = .positional, .desc = "pos-str description" }),
         .init(u8, "with-default", .{ .desc = "with-default description", .default_value_ptr = &@as(u8, 10) }),
+        .init([]const u8, "list", .{ .is_list = true, .desc = "list description" }),
     };
 
-    var args = try std.process.argsWithAllocator(std.heap.page_allocator); // TODO use a better allocator
+    const alloc = std.heap.page_allocator; // TODO use a better allocator
+    var args = try std.process.argsWithAllocator(alloc);
     defer args.deinit();
 
-    var result = flagset.parseFromIter(&flags, args, .{}) catch |e| switch (e) {
+    var result = flagset.parseFromIter(&flags, args, .{ .allocator = alloc }) catch |e| switch (e) {
         error.HelpRequested => {
             std.debug.print("{: <45}", .{flagset.fmtUsage(&flags, .full,
                 \\

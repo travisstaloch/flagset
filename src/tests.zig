@@ -456,6 +456,7 @@ const fmt_flagset = [_]flagset.Flag{
     .init(?[]const u8, "opt-string", .{ .desc = "opt-string help", .short = 's' }),
     .init([]const u8, "string", .{ .desc = "string help" }),
     .init([]const u8, "pos-str", .{ .desc = "pos-str help", .kind = .positional }),
+    .init([]const u8, "list", .{ .is_list = true, .desc = "list help" }),
 };
 
 test "fmtUsage" {
@@ -490,6 +491,7 @@ test "fmtUsage" {
         \\                         opt-string help
         \\  --string <string>      string help
         \\  <pos-str:string>       pos-str help
+        \\  --list <string> (many) list help
         \\
         \\
     , "{: <25}", .{flagset.fmtUsage(&fmt_flagset, .full,
@@ -515,6 +517,7 @@ test "fmtUsage" {
         \\  --opt-string, --no-opt-string, -s <string> opt-string help
         \\  --string <string>                          string help
         \\  <pos-str:string>                           pos-str help
+        \\  --list <string> (many)                     list help
         \\
         \\
     , "{: <45}", .{flagset.fmtUsage(&fmt_flagset, .full,
@@ -529,21 +532,22 @@ test "fmtUsage" {
 
 test "fmtParsed - round trip" {
     var count: u32 = undefined;
-    const result = try flagset.parseFromSlice(
+    var result = try flagset.parseFromSlice(
         &fmt_flagset,
-        testArgs(&.{ "--flag", "--count", "10", "two", "--no-opt-string", "--string", "\"s\"", "pos-str" }),
-        .{ .ptrs = .{ .count = &count } },
+        testArgs(&.{ "--flag", "--count", "10", "two", "--no-opt-string", "--string", "s", "pos-str", "--list", "foo", "--list", "bar" }),
+        .{ .ptrs = .{ .count = &count }, .allocator = testing.allocator },
     );
+    defer result.deinit(testing.allocator);
 
     try testing.expectFmt(
-        \\--flag --count 10 two --no-opt-string --string "s" pos-str
+        \\--flag --count 10 two --no-opt-string --string s pos-str --list foo --list bar
     ,
         "{}",
         .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{ .ptrs = .{ .count = &count } })},
     );
 
     try testing.expectFmt(
-        \\--flag --count 10 enum:two --no-opt-string --string "s" pos-str:pos-str
+        \\--flag --count 10 enum:two --no-opt-string --string s pos-str:pos-str --list foo --list bar
     ,
         "{}",
         .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{
@@ -554,24 +558,34 @@ test "fmtParsed - round trip" {
 
     var buf: [128]u8 = undefined;
     const formatted = try std.fmt.bufPrint(&buf, "exepath {}", .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{})});
-
-    const result2 = try flagset.parseFromIter(&fmt_flagset, std.mem.tokenizeScalar(u8, formatted, ' '), .{});
-    try testing.expectEqual(result.parsed.flag, result2.parsed.flag);
-    try testing.expectEqual(result.parsed.count, result2.parsed.count);
-    try testing.expectEqual(result.parsed.@"enum", result2.parsed.@"enum");
-    try testing.expect(result.parsed.@"opt-string" == null);
-    try testing.expect(result2.parsed.@"opt-string" == null);
-    try testing.expectEqualStrings(result.parsed.string, result2.parsed.string);
-    try testing.expectEqualStrings(result.parsed.@"pos-str", result2.parsed.@"pos-str");
-
-    const result3 = try flagset.parseFromIter(&fmt_flagset, std.mem.splitScalar(u8, formatted, ' '), .{});
-    try testing.expectEqual(result.parsed.flag, result3.parsed.flag);
-    try testing.expectEqual(result.parsed.count, result3.parsed.count);
-    try testing.expectEqual(result.parsed.@"enum", result3.parsed.@"enum");
-    try testing.expect(result.parsed.@"opt-string" == null);
-    try testing.expect(result3.parsed.@"opt-string" == null);
-    try testing.expectEqualStrings(result.parsed.string, result3.parsed.string);
-    try testing.expectEqualStrings(result.parsed.@"pos-str", result3.parsed.@"pos-str");
+    {
+        var r = try flagset.parseFromIter(&fmt_flagset, std.mem.tokenizeScalar(u8, formatted, ' '), .{ .allocator = testing.allocator });
+        defer r.deinit(testing.allocator);
+        try testing.expectEqual(result.parsed.flag, r.parsed.flag);
+        try testing.expectEqual(result.parsed.count, r.parsed.count);
+        try testing.expectEqual(result.parsed.@"enum", r.parsed.@"enum");
+        try testing.expect(result.parsed.@"opt-string" == null);
+        try testing.expect(r.parsed.@"opt-string" == null);
+        try testing.expectEqualStrings(result.parsed.string, r.parsed.string);
+        try testing.expectEqualStrings(result.parsed.@"pos-str", r.parsed.@"pos-str");
+        try testing.expectEqual(2, r.parsed.list.items.len);
+        try testing.expectEqualStrings("foo", r.parsed.list.items[0]);
+        try testing.expectEqualStrings("bar", r.parsed.list.items[1]);
+    }
+    {
+        var r = try flagset.parseFromIter(&fmt_flagset, std.mem.splitScalar(u8, formatted, ' '), .{ .allocator = testing.allocator });
+        defer r.deinit(testing.allocator);
+        try testing.expectEqual(result.parsed.flag, r.parsed.flag);
+        try testing.expectEqual(result.parsed.count, r.parsed.count);
+        try testing.expectEqual(result.parsed.@"enum", r.parsed.@"enum");
+        try testing.expect(result.parsed.@"opt-string" == null);
+        try testing.expect(r.parsed.@"opt-string" == null);
+        try testing.expectEqualStrings(result.parsed.string, r.parsed.string);
+        try testing.expectEqualStrings(result.parsed.@"pos-str", r.parsed.@"pos-str");
+        try testing.expectEqual(2, r.parsed.list.items.len);
+        try testing.expectEqualStrings("foo", r.parsed.list.items[0]);
+        try testing.expectEqualStrings("bar", r.parsed.list.items[1]);
+    }
 }
 
 test "StaticBitsetMap" {
@@ -664,4 +678,49 @@ test "combined shorts" {
         error.MissingRequiredFlag,
         flagset.parseFromSlice(&flags, testArgs(&.{"-ac"}), .{}),
     );
+}
+
+test "list" {
+    const flags = [_]flagset.Flag{
+        .init([]const u8, "list", .{ .is_list = true, .short = 'l' }),
+    };
+    {
+        const result = try flagset.parseFromSlice(&flags, testArgs(&.{}), .{});
+        try testing.expectEqual(0, result.parsed.list.items.len);
+    }
+    {
+        var result = try flagset.parseFromSlice(&flags, testArgs(&.{ "--list", "foo", "--list", "bar" }), .{ .allocator = testing.allocator });
+        defer result.deinit(testing.allocator);
+        try testing.expectEqual(2, result.parsed.list.items.len);
+        try testing.expectEqualStrings("foo", result.parsed.list.items[0]);
+        try testing.expectEqualStrings("bar", result.parsed.list.items[1]);
+    }
+    {
+        var result = try flagset.parseFromSlice(&flags, testArgs(&.{ "-l", "foo", "-l", "bar" }), .{ .allocator = testing.allocator });
+        defer result.deinit(testing.allocator);
+        try testing.expectEqual(2, result.parsed.list.items.len);
+        try testing.expectEqualStrings("foo", result.parsed.list.items[0]);
+        try testing.expectEqualStrings("bar", result.parsed.list.items[1]);
+    }
+    {
+        var result = try flagset.parseFromSlice(&flags, testArgs(&.{ "-l=foo", "-l=bar" }), .{ .allocator = testing.allocator });
+        defer result.deinit(testing.allocator);
+        try testing.expectEqual(2, result.parsed.list.items.len);
+        try testing.expectEqualStrings("foo", result.parsed.list.items[0]);
+        try testing.expectEqualStrings("bar", result.parsed.list.items[1]);
+    }
+}
+
+test "list parse into ptrs" {
+    var list: std.ArrayListUnmanaged([]const u8) = .{};
+    defer list.deinit(std.testing.allocator);
+    const flags = [_]flagset.Flag{
+        .init([]const u8, "list", .{ .is_list = true }),
+    };
+    _ = try flagset.parseFromSlice(
+        &flags,
+        testArgs(&.{ "--list", "foo", "--list", "bar" }),
+        .{ .allocator = testing.allocator, .ptrs = .{ .list = &list } },
+    );
+    try testing.expectEqualSlices([]const u8, &.{ "foo", "bar" }, list.items);
 }
