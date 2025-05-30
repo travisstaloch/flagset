@@ -843,6 +843,7 @@ fn fmtParsedVal(
 fn debug(comptime fmt: []const u8, args: anytype) void {
     if (false)
         log.debug(fmt, args);
+    // std.debug.print(fmt ++ "\n", args);
 }
 
 const log = std.log.scoped(.flags);

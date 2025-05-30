@@ -10,7 +10,7 @@ jobs:
     strategy:
       matrix:
         optimize: [Debug, ReleaseSafe, ReleaseFast, ReleaseSmall]
-        runs-on: [ubuntu-latest, windows-latest]
+        runs-on: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.runs-on }}
     steps:
       - uses: actions/checkout@v3

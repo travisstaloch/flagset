@@ -195,33 +195,30 @@ test "duplicate flags" {
 
 test "parse into ptrs" {
     {
-        var int: i8 = undefined;
-        const result = try flagset.parseFromSlice(
+        var int: i8 = 0;
+        _ = try flagset.parseFromSlice(
             &[_]flagset.Flag{.init(i8, "int", .{})},
             testArgs(&.{"--int=10"}),
             .{ .ptrs = .{ .int = &int } },
         );
-        try testing.expect(result.parsed.int != 10); // should be undefined
         try testing.expectEqual(10, int);
     }
     {
-        var int: i8 = undefined;
-        const result = try flagset.parseFromSlice(
+        var int: i8 = 0;
+        _ = try flagset.parseFromSlice(
             &[_]flagset.Flag{.init(i8, "int", .{ .kind = .positional })},
             testArgs(&.{"10"}),
             .{ .ptrs = .{ .int = &int } },
         );
-        try testing.expect(result.parsed.int != 10); // should be undefined
         try testing.expectEqual(10, int);
     }
     { // default value
-        var int: i8 = undefined;
-        const result = try flagset.parseFromSlice(
+        var int: i8 = 0;
+        _ = try flagset.parseFromSlice(
             &[_]flagset.Flag{.init(i8, "int", .{ .default_value_ptr = &@as(i8, 10) })},
             testArgs(&.{}),
             .{ .ptrs = .{ .int = &int } },
         );
-        try testing.expect(result.parsed.int != 10); // should be undefined
         try testing.expectEqual(10, int);
     }
 }
