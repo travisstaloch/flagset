@@ -464,7 +464,7 @@ test "fmtUsage" {
         \\help message
         \\
         \\
-    , "{: <25}", .{flagset.fmtUsage(&fmt_flagset, .brief,
+    , "{f}", .{flagset.fmtUsage(&fmt_flagset, ": <25", .brief,
         \\
         \\usage: exepath <options>
         \\
@@ -491,7 +491,7 @@ test "fmtUsage" {
         \\  --list <string> (many) list help
         \\
         \\
-    , "{: <25}", .{flagset.fmtUsage(&fmt_flagset, .full,
+    , "{f}", .{flagset.fmtUsage(&fmt_flagset, ": <25", .full,
         \\
         \\usage: exepath <options>
         \\
@@ -517,7 +517,7 @@ test "fmtUsage" {
         \\  --list <string> (many)                     list help
         \\
         \\
-    , "{: <45}", .{flagset.fmtUsage(&fmt_flagset, .full,
+    , "{f}", .{flagset.fmtUsage(&fmt_flagset, ": <45", .full,
         \\
         \\usage: exepath <options>
         \\
@@ -539,14 +539,14 @@ test "fmtParsed - round trip" {
     try testing.expectFmt(
         \\--flag --count 10 two --no-opt-string --string s pos-str --list foo --list bar
     ,
-        "{}",
+        "{f}",
         .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{ .ptrs = .{ .count = &count } })},
     );
 
     try testing.expectFmt(
         \\--flag --count 10 enum:two --no-opt-string --string s pos-str:pos-str --list foo --list bar
     ,
-        "{}",
+        "{f}",
         .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{
             .flags = .{ .show_positional_names = true },
             .ptrs = .{ .count = &count },
@@ -554,7 +554,7 @@ test "fmtParsed - round trip" {
     );
 
     var buf: [128]u8 = undefined;
-    const formatted = try std.fmt.bufPrint(&buf, "exepath {}", .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{})});
+    const formatted = try std.fmt.bufPrint(&buf, "exepath {f}", .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{})});
     {
         var r = try flagset.parseFromIter(&fmt_flagset, std.mem.tokenizeScalar(u8, formatted, ' '), .{ .allocator = testing.allocator });
         defer r.deinit(testing.allocator);

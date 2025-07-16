@@ -6,7 +6,7 @@ Simplicity, fast compile times, and small binary size with measured use of compt
 
 # features
 * auto generated usage/help text
-  * format width specifier controls column width.  i.e. `"{: <25}"` sets width to 25.
+  * placeholder width controls column width.  passing `": <25"` sets width to 25.  default width is 25.
 * positional (unnamed) flags may occur in any position, not just after named flags.  positional flags are always parsed in declaration order.
 * compososition: `parse()` methods return unparsed args or a modified iterator.  this allows for composing flagsets by passing `parse_result.unparsed_args` on to further `parse()` methods with different flagsets.
   * Flag parsing stops when all flags have been parsed, just before the first non-flag argument ("-" is a non-flag argument) or after the terminator "--"
@@ -56,7 +56,7 @@ pub fn main() !void {
 
     var result = flagset.parseFromIter(&flags, args, .{ .allocator = alloc }) catch |e| switch (e) {
         error.HelpRequested => {
-            std.debug.print("{: <45}", .{flagset.fmtUsage(&flags, .full,
+            std.debug.print("{f}", .{flagset.fmtUsage(&flags, ": <45", .full,
                 \\
                 \\usage: demo <options>
                 \\
@@ -66,7 +66,7 @@ pub fn main() !void {
         },
         else => return e,
     };
-    std.debug.print("parsed: {}\n", .{flagset.fmtParsed(&flags, result.parsed, .{})});
+    std.debug.print("parsed: {f}\n", .{flagset.fmtParsed(&flags, result.parsed, .{})});
     std.debug.print("unparsed args: ", .{});
     while (result.unparsed_args.next()) |arg| std.debug.print("{s} ", .{arg});
     std.debug.print("\n", .{});

@@ -6,8 +6,11 @@ const std = @import("std");
 const mem = std.mem;
 const meta = std.meta;
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
 
 pub const StaticBitsetMap = @import("static-bitset-map.zig").StaticBitsetMap;
+
+const CountingWriter = @import("CountingWriter.zig");
 
 /// A single command line flag.  This struct allows users to describe their cli.
 /// Names must be distinct.
@@ -53,81 +56,82 @@ pub const Flag = struct {
         /// a custom parse function.  because this is type erased, you should
         /// pass `checkParseFn(myParseFn)` to verify its signature.
         parseFn: ?*const anyopaque = null,
+        /// formatting options
+        width: ?usize = null,
+        fill: u8 = ' ',
+        alignment: std.fmt.Alignment = .left,
     };
 
-    fn fmtFlagType(flag: Flag, cw: anytype, comptime T: type) !void {
+    fn fmtFlagType(flag: Flag, w: *Writer, comptime T: type) !void {
         if (flag.options.kind != .positional)
-            try cw.writeAll(" <")
+            try w.writeAll(" <")
         else
-            try cw.writeAll(":");
-        try cw.writeAll(if (comptime isZigString(T)) "string" else @typeName(T));
-        if (flag.options.kind != .positional) try cw.writeByte('>');
+            try w.writeAll(":");
+        try w.writeAll(if (comptime isZigString(T)) "string" else @typeName(T));
+        if (flag.options.kind != .positional) try w.writeByte('>');
     }
 
-    pub fn format(
-        flag: Flag,
-        comptime _: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        var cw_state = std.io.countingWriter(writer);
-        const cw = cw_state.writer();
-        try cw.writeAll("  ");
+    pub fn format(comptime flag: Flag, writer: *Writer) !void {
+        var cw: CountingWriter = try .init(writer);
+        defer cw.deinit();
+        const w = &cw.writer;
+        try w.writeAll("  ");
 
         if (flag.options.kind == .positional) {
-            try cw.writeByte('<');
+            try w.writeByte('<');
         } else {
-            try cw.writeAll("--");
+            try w.writeAll("--");
         }
-        try cw.writeAll(flag.name);
+        try w.writeAll(flag.name);
 
         if (flag.options.kind == .named) {
             switch (@typeInfo(flag.type)) {
                 .bool, .optional => {
-                    try cw.writeAll(", --no-");
-                    try cw.writeAll(flag.name);
+                    try w.writeAll(", --no-");
+                    try w.writeAll(flag.name);
                 },
                 else => {},
             }
             if (flag.options.short) |s| {
-                try cw.writeAll(", -");
-                _ = try cw.writeByte(s);
+                try w.writeAll(", -");
+                _ = try w.writeByte(s);
             }
         }
 
         switch (@typeInfo(flag.type)) {
             .bool => {},
             .@"enum" => |info| {
-                try cw.writeAll(":");
+                try w.writeAll(":");
                 inline for (info.fields, 0..) |f, i| {
-                    if (i != 0) try cw.writeByte('|');
-                    try cw.writeAll(f.name);
+                    if (i != 0) try w.writeByte('|');
+                    try w.writeAll(f.name);
                 }
             },
             .optional => |info| {
-                try fmtFlagType(flag, cw, info.child);
+                try fmtFlagType(flag, w, info.child);
             },
             else => {
-                try fmtFlagType(flag, cw, flag.type);
+                try fmtFlagType(flag, w, flag.type);
             },
         }
 
         if (flag.options.kind == .positional)
-            try cw.writeByte('>')
+            try w.writeByte('>')
         else if (flag.options.kind == .list)
-            try cw.writeAll(" (many)");
+            try w.writeAll(" (many)");
 
         if (flag.options.desc) |desc| {
-            const width = options.width orelse 25;
-            if (cw_state.bytes_written > width) {
-                try writer.writeByte('\n');
-                try writer.writeByteNTimes(@intCast(options.fill), width);
-                try writer.writeAll(desc);
+            const width = flag.options.width orelse 25;
+            const count = cw.logicalCount();
+            if (count > width) {
+                try w.writeByte('\n');
+                try w.splatByteAll(@intCast(flag.options.fill), width);
             } else {
-                try writer.writeByteNTimes(@intCast(options.fill), width - cw_state.bytes_written);
-                try writer.writeAll(desc);
+                try w.splatByteAll(@intCast(flag.options.fill), width - count);
             }
+            try w.writeAll(desc);
         }
+        try w.flush();
     }
 };
 
@@ -538,7 +542,7 @@ pub fn parseFromIter(
                     seen_flags.insert(missing_flag);
                 } else {
                     if (!@import("builtin").is_test)
-                        log.warn("missing required flag: {}", .{flag});
+                        log.warn("missing required flag: {f}", .{flag});
                 }
             },
         }
@@ -654,17 +658,20 @@ fn parseValue(
 
 pub const UsageMode = enum { full, brief };
 
-pub fn FmtUsage(comptime flags: []const Flag) type {
+pub fn FmtUsage(comptime flags: []const Flag, comptime fmt: []const u8) type {
+    const ph = comptime std.fmt.Placeholder.parse(fmt);
+
+    const options = std.fmt.Options{
+        .alignment = ph.alignment,
+        .fill = ph.fill,
+        .precision = if (ph.precision == .number) ph.precision.number else null,
+        .width = if (ph.width == .number) ph.width.number else null,
+    };
     return struct {
         usage: []const u8,
         mode: UsageMode,
 
-        pub fn format(
-            self: @This(),
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
+        pub fn format(self: @This(), writer: *Writer) !void {
             try writer.writeAll(self.usage);
 
             if (self.mode == .brief) return;
@@ -674,15 +681,21 @@ pub fn FmtUsage(comptime flags: []const Flag) type {
             const help_desc = "show this message and exit\n";
             if (help_flags.len > width) {
                 try writer.writeByte('\n');
-                try writer.writeByteNTimes(@intCast(options.fill), width);
+                try writer.splatByteAll(@intCast(options.fill), width);
                 try writer.writeAll(help_desc);
             } else {
-                try writer.writeByteNTimes(@intCast(options.fill), width - help_flags.len);
+                try writer.splatByteAll(@intCast(options.fill), width - help_flags.len);
                 try writer.writeAll(help_desc);
             }
 
             inline for (flags) |flag| {
-                try std.fmt.formatType(flag, fmt, options, writer, 0);
+                comptime var f = flag;
+                f.options.fill = options.fill;
+                f.options.width = options.width;
+                f.options.alignment = options.alignment;
+                // TODO is precision meaningful?
+                // f.options.precision = options.precision;
+                try f.format(writer);
                 try writer.writeByte('\n');
             }
             try writer.writeByte('\n');
@@ -692,9 +705,10 @@ pub fn FmtUsage(comptime flags: []const Flag) type {
 
 pub fn fmtUsage(
     comptime flags: []const Flag,
+    comptime fmt: []const u8,
     mode: UsageMode,
     usage: []const u8,
-) std.fmt.Formatter(FmtUsage(flags).format) {
+) std.fmt.Formatter(FmtUsage(flags, fmt), FmtUsage(flags, fmt).format) {
     return .{ .data = .{ .usage = usage, .mode = mode } };
 }
 
@@ -714,12 +728,7 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
         parsed: Parsed(flags),
         options: ParsedFmtOptions(flags),
 
-        pub fn format(
-            self: @This(),
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
+        pub fn format(self: @This(), writer: *Writer) !void {
             inline for (flags, 0..) |flag, i| {
                 if (i != 0) try writer.writeByte(' ');
                 const value = if (@field(self.options.ptrs, flag.name)) |ptr|
@@ -736,7 +745,7 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
                         },
                         .optional => {
                             if (value) |v| {
-                                try fmtParsedVal(v, fmt, options, writer);
+                                try fmtParsedVal(v, writer);
                             } else {
                                 try writer.writeAll("no-");
                                 try writer.writeAll(flag.name);
@@ -747,12 +756,12 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
                                 if (j != 0) try writer.writeAll(" --");
                                 try writer.writeAll(flag.name);
                                 try writer.writeByte(' ');
-                                try fmtParsedVal(item, fmt, options, writer);
+                                try fmtParsedVal(item, writer);
                             }
                         } else {
                             try writer.writeAll(flag.name);
                             try writer.writeByte(' ');
-                            try fmtParsedVal(value, fmt, options, writer);
+                            try fmtParsedVal(value, writer);
                         },
                     }
                 } else {
@@ -760,7 +769,7 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
                         try writer.writeAll(flag.name);
                         try writer.writeByte(':');
                     }
-                    try fmtParsedVal(value, fmt, options, writer);
+                    try fmtParsedVal(value, writer);
                 }
             }
         }
@@ -771,7 +780,7 @@ pub fn fmtParsed(
     comptime flags: []const Flag,
     parsed: Parsed(flags),
     options: ParsedFmtOptions(flags),
-) std.fmt.Formatter(FmtParsed(flags).format) {
+) std.fmt.Formatter(FmtParsed(flags), FmtParsed(flags).format) {
     return .{ .data = .{ .parsed = parsed, .options = options } };
 }
 
@@ -824,19 +833,18 @@ fn invalidFlagError(flag: Flag, i: usize, reason: []const u8) noreturn {
     @compileError(std.fmt.comptimePrint("{s} '" ++ flag.name ++ "' at index {}", .{ reason, i }));
 }
 
-fn fmtParsedVal(
-    value: anytype,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+fn fmtParsedVal(value: anytype, writer: *Writer) !void {
     const V = @TypeOf(value);
     switch (@typeInfo(V)) {
         .@"enum" => try writer.writeAll(@tagName(value)),
         .pointer => if (comptime isZigString(V)) {
             try writer.writeAll(value);
         } else unsupportedType(V),
-        else => try std.fmt.formatType(value, fmt, options, writer, 0),
+        .int => try writer.printInt(value, 10, .lower, .{}),
+        // TODO support more types
+        else => |tag| {
+            @compileError("TODO '" ++ @tagName(tag) ++ "' '" ++ @typeName(@TypeOf(value)) ++ "'");
+        },
     }
 }
 
