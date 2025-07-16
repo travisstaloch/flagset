@@ -9,10 +9,13 @@ pub fn build(b: *std.Build) void {
     });
 
     const tests = b.addTest(.{
-        .root_source_file = b.path("src/tests.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
+    b.installArtifact(tests);
     tests.root_module.addImport("flagset", flags_mod);
     tests.filters = b.option([]const []const u8, "test-filters", "") orelse &.{};
     const run_tests = b.addRunArtifact(tests);
@@ -21,9 +24,11 @@ pub fn build(b: *std.Build) void {
 
     const demo = b.addExecutable(.{
         .name = "demo",
-        .root_source_file = b.path("src/demo.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/demo.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     demo.root_module.addImport("flagset", flags_mod);
     b.installArtifact(demo);

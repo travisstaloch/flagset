@@ -20,7 +20,7 @@ pub fn main() !void {
 
     var result = flagset.parseFromIter(&flags, args, .{ .allocator = alloc }) catch |e| switch (e) {
         error.HelpRequested => {
-            std.debug.print("{: <45}", .{flagset.fmtUsage(&flags, .full,
+            std.debug.print("{f}", .{flagset.fmtUsage(&flags, ": <45", .full,
                 \\
                 \\usage: demo <options>
                 \\
@@ -30,7 +30,7 @@ pub fn main() !void {
         },
         else => return e,
     };
-    std.debug.print("parsed: {}\n", .{flagset.fmtParsed(&flags, result.parsed, .{})});
+    std.debug.print("parsed: {f}\n", .{flagset.fmtParsed(&flags, result.parsed, .{})});
     std.debug.print("unparsed args: ", .{});
     while (result.unparsed_args.next()) |arg| std.debug.print("{s} ", .{arg});
     std.debug.print("\n", .{});
