@@ -24,12 +24,12 @@ pub const Flag = struct {
     }
 
     pub fn parseFn(comptime flag: Flag) ?*const ParseFn(flag.type) {
-        return if (flag.options.parseFn) |f| @alignCast(@ptrCast(f)) else null;
+        return if (flag.options.parseFn) |f| @ptrCast(@alignCast(f)) else null;
     }
 
     pub inline fn defaultValue(comptime flag: Flag) ?flag.type {
         const ptr = flag.options.default_value_ptr orelse return null;
-        const casted: *const flag.type = @alignCast(@ptrCast(ptr));
+        const casted: *const flag.type = @ptrCast(@alignCast(ptr));
         return casted.*;
     }
 
@@ -187,15 +187,16 @@ pub inline fn Parsed(comptime flags: []const Flag) type {
         var fields: []const StructField = &.{};
         for (flags, 0..) |flag, i| {
             validateFlag(flag, i, fields);
+            const T = if (flag.options.kind == .list)
+                std.ArrayListUnmanaged(flag.type)
+            else
+                flag.type;
             fields = fields ++ .{StructField{
-                .type = if (flag.options.kind == .list)
-                    std.ArrayListUnmanaged(flag.type)
-                else
-                    flag.type,
+                .type = T,
                 .name = flag.name,
                 .default_value_ptr = null,
                 .is_comptime = false,
-                .alignment = 0,
+                .alignment = @alignOf(T),
             }};
         }
         return @Type(.{ .@"struct" = .{
@@ -229,7 +230,7 @@ pub fn ParsedPtrs(
                 .name = flag.name,
                 .default_value_ptr = @ptrCast(&default),
                 .is_comptime = false,
-                .alignment = 0,
+                .alignment = @alignOf(T),
             }};
         }
         return @Type(.{ .@"struct" = .{
