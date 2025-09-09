@@ -6,7 +6,7 @@ const std = @import("std");
 const mem = std.mem;
 const meta = std.meta;
 const assert = std.debug.assert;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 pub const StaticBitsetMap = @import("static-bitset-map.zig").StaticBitsetMap;
 
@@ -709,8 +709,8 @@ pub fn fmtUsage(
     comptime fmt: []const u8,
     mode: UsageMode,
     usage: []const u8,
-) std.fmt.Formatter(FmtUsage(flags, fmt), FmtUsage(flags, fmt).format) {
-    return .{ .data = .{ .usage = usage, .mode = mode } };
+) FmtUsage(flags, fmt) {
+    return .{ .usage = usage, .mode = mode };
 }
 
 pub fn ParsedFmtOptions(comptime flags: []const Flag) type {
@@ -781,8 +781,8 @@ pub fn fmtParsed(
     comptime flags: []const Flag,
     parsed: Parsed(flags),
     options: ParsedFmtOptions(flags),
-) std.fmt.Formatter(FmtParsed(flags), FmtParsed(flags).format) {
-    return .{ .data = .{ .parsed = parsed, .options = options } };
+) FmtParsed(flags) {
+    return .{ .parsed = parsed, .options = options };
 }
 
 fn checkHelp(arg: []const u8) error{HelpRequested}!void {
