@@ -362,21 +362,22 @@ test "codepoint" {
 }
 
 test "parseFn" {
+    const IpAddress = std.Io.net.IpAddress;
     const flags = [_]flagset.Flag{
-        .init(std.net.Address, "ip", .{
-            .parseFn = flagset.checkParseFn(std.net.Address, &struct {
+        .init(IpAddress, "ip", .{
+            .parseFn = flagset.checkParseFn(IpAddress, &struct {
                 fn parseFn(
                     value_str: []const u8,
                     args_iter_ptr: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.ParseError!std.net.Address {
+                ) flagset.ParseError!IpAddress {
                     const to_parse = if (value_str.len != 0)
                         value_str
                     else if (args_iter_ptr.next()) |next_arg|
                         next_arg
                     else
                         return error.UnexpectedValue;
-                    return std.net.Address.parseIp(to_parse, 0) catch
+                    return IpAddress.parse(to_parse, 0) catch
                         return error.UnexpectedValue;
                 }
             }.parseFn),
@@ -384,26 +385,26 @@ test "parseFn" {
     };
     const ip = "127.0.0.1";
     const result = try flagset.parseFromSlice(&flags, testArgs(&.{ "--ip", ip }), .{});
-    const expected = std.net.Address.parseIp(ip, 0) catch unreachable;
-    try testing.expect(expected.eql(result.parsed.ip));
+    const expected = IpAddress.parse(ip, 0) catch unreachable;
+    try testing.expect(expected.eql(&result.parsed.ip));
 
     // positional
     const result2 = try flagset.parseFromSlice(&[_]flagset.Flag{
-        .init(std.net.Address, "ip", .{
+        .init(IpAddress, "ip", .{
             .kind = .positional,
-            .parseFn = flagset.checkParseFn(std.net.Address, &struct {
+            .parseFn = flagset.checkParseFn(IpAddress, &struct {
                 fn parseFn(
                     value_str: []const u8,
                     _: anytype,
                     _: flagset.ParsedValueFlags,
-                ) flagset.ParseError!std.net.Address {
-                    return std.net.Address.parseIp(value_str, 0) catch
+                ) flagset.ParseError!IpAddress {
+                    return IpAddress.parse(value_str, 0) catch
                         return error.UnexpectedValue;
                 }
             }.parseFn),
         }),
     }, testArgs(&.{ip}), .{});
-    try testing.expect(expected.eql(result2.parsed.ip));
+    try testing.expect(expected.eql(&result2.parsed.ip));
 }
 
 test "parseFn misc" {
