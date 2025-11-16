@@ -7,7 +7,8 @@ pub fn main() !void {
         .init(bool, "flag", .{ .short = 'f', .desc = "flag description" }),
         .init(u32, "count", .{ .desc = "count description" }),
         .init(enum { one, two }, "enum", .{ .kind = .positional, .desc = "enum description" }),
-        .init(?[]const u8, "opt-string", .{ .short = 's', .desc = "opt-string description" }),
+        // NOTE: `default_value_ptr=&null` means there is no default value.  so we have to give it a type.
+        .init(?[]const u8, "opt-string", .{ .short = 's', .desc = "opt-string description", .default_value_ptr = &@as(?[]const u8, "opt-string-default") }),
         .init([]const u8, "string", .{ .desc = "string description" }),
         .init([]const u8, "pos-str", .{ .kind = .positional, .desc = "pos-str description" }),
         .init(u8, "with-default", .{ .desc = "with-default description", .default_value_ptr = &@as(u8, 10) }),

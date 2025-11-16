@@ -14,7 +14,30 @@ fn expectParsed(
     expected: flagset.Parsed(flags),
 ) !void {
     const result = try flagset.parseFromSlice(flags, args, .{});
-    try testing.expectEqual(expected, result.parsed);
+    inline for (flags) |f| switch (f.type) {
+        []const u8 => {
+            try testing.expectEqualStrings(
+                @field(expected, f.name),
+                @field(result.parsed, f.name),
+            );
+        },
+        ?[]const u8 => {
+            try testing.expect((@field(expected, f.name) == null) ==
+                (@field(result.parsed, f.name) == null));
+
+            if (@field(expected, f.name)) |field|
+                try testing.expectEqualStrings(
+                    field,
+                    @field(result.parsed, f.name).?,
+                );
+        },
+        else => {
+            try testing.expectEqual(
+                @field(expected, f.name),
+                @field(result.parsed, f.name),
+            );
+        },
+    };
     try testing.expectEqual(0, result.unparsed_args.len);
 }
 
@@ -160,11 +183,27 @@ test "parse string" {
     );
 }
 
-test "parse optionals" {
+test "optionals" {
     const opt_int_flag = [_]flagset.Flag{.init(?i8, "int", .{})};
+    try testing.expectError(
+        error.MissingRequiredFlag,
+        expectParsed(&opt_int_flag, testArgs(&.{}), .{ .int = null }),
+    );
     try expectParsed(&opt_int_flag, testArgs(&.{"--no-int"}), .{ .int = null });
     try expectParsed(&opt_int_flag, testArgs(&.{"--no-int"}), .{ .int = null });
     try expectParsed(&opt_int_flag, testArgs(&.{"--int=10"}), .{ .int = 10 });
+}
+
+test "optionals with defaults" {
+    const opt_int_flag = [_]flagset.Flag{
+        // NOTE: `&null` means no default value.  so we have to give a type.
+        .init(?[]const u8, "str", .{ .default_value_ptr = &@as(?[]const u8, null) }),
+        .init(?[]const u8, "str2", .{ .default_value_ptr = &@as(?[]const u8, "str2 default") }),
+    };
+    try expectParsed(&opt_int_flag, testArgs(&.{}), .{ .str = null, .str2 = "str2 default" });
+    try expectParsed(&opt_int_flag, testArgs(&.{"--str=foo"}), .{ .str = "foo", .str2 = "str2 default" });
+    try expectParsed(&opt_int_flag, testArgs(&.{"--str2=foo"}), .{ .str = null, .str2 = "foo" });
+    try expectParsed(&opt_int_flag, testArgs(&.{ "--str=foo", "--str2=foo" }), .{ .str = "foo", .str2 = "foo" });
 }
 
 test "required flags" {

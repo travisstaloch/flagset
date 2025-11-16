@@ -746,10 +746,18 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
                         },
                         .optional => {
                             if (value) |v| {
+                                try writer.writeAll(flag.name);
+                                try writer.writeByte(' ');
                                 try fmtParsedVal(v, writer);
                             } else {
-                                try writer.writeAll("no-");
-                                try writer.writeAll(flag.name);
+                                if (flag.defaultValue()) |v| {
+                                    try writer.writeAll(flag.name);
+                                    try writer.writeByte(' ');
+                                    try fmtParsedVal(v, writer);
+                                } else {
+                                    try writer.writeAll("no-");
+                                    try writer.writeAll(flag.name);
+                                }
                             }
                         },
                         else => if (flag.options.kind == .list) {
@@ -842,6 +850,7 @@ fn fmtParsedVal(value: anytype, writer: *Writer) !void {
             try writer.writeAll(value);
         } else unsupportedType(V),
         .int => try writer.printInt(value, 10, .lower, .{}),
+        .optional => if (value) |v| try fmtParsedVal(v, writer),
         // TODO support more types
         else => |tag| {
             @compileError("TODO '" ++ @tagName(tag) ++ "' '" ++ @typeName(@TypeOf(value)) ++ "'");
