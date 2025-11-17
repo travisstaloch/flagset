@@ -48,7 +48,7 @@ pub fn main() !void {
         .init([]const u8, "string", .{ .desc = "string description" }),
         .init([]const u8, "pos-str", .{ .kind = .positional, .desc = "pos-str description" }),
         .init(u8, "with-default", .{ .desc = "with-default description", .default_value_ptr = &@as(u8, 10) }),
-        .init([]const u8, "list", .{ .desc = "list description", .kind = .list }),
+        .init([]const u8, "list", .{ .desc = "list description", .kind = .list, .short = 'l' }),
     };
 
     const alloc = std.heap.page_allocator; // TODO use a better allocator
@@ -87,7 +87,7 @@ options:
   --string <string>                          string description
   <pos-str:string>                           pos-str description
   --with-default <u8>                        with-default description
-  --list <string> (many)                     list description
+  --list, -l <string> (many)                 list description
 
 $ zig build demo -- --flag --count 10 two --string "s" pos-str --list foo --list bar --foo --bar
 parsed: --flag --count 10 two --opt-string opt-string-default --string s pos-str --with-default 10 --list foo --list bar

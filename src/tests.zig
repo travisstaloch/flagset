@@ -493,7 +493,7 @@ const fmt_flagset = [_]flagset.Flag{
     .init(?[]const u8, "opt-string", .{ .desc = "opt-string help", .short = 's' }),
     .init([]const u8, "string", .{ .desc = "string help" }),
     .init([]const u8, "pos-str", .{ .desc = "pos-str help", .kind = .positional }),
-    .init([]const u8, "list", .{ .desc = "list help", .kind = .list }),
+    .init([]const u8, "list", .{ .desc = "list help", .kind = .list, .short = 'l' }),
 };
 
 test "fmtUsage" {
@@ -528,7 +528,8 @@ test "fmtUsage" {
         \\                         opt-string help
         \\  --string <string>      string help
         \\  <pos-str:string>       pos-str help
-        \\  --list <string> (many) list help
+        \\  --list, -l <string> (many)
+        \\                         list help
         \\
         \\
     , "{f}", .{flagset.fmtUsage(&fmt_flagset, ": <25", .full,
@@ -554,7 +555,7 @@ test "fmtUsage" {
         \\  --opt-string, --no-opt-string, -s <string> opt-string help
         \\  --string <string>                          string help
         \\  <pos-str:string>                           pos-str help
-        \\  --list <string> (many)                     list help
+        \\  --list, -l <string> (many)                 list help
         \\
         \\
     , "{f}", .{flagset.fmtUsage(&fmt_flagset, ": <45", .full,

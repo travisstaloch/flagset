@@ -84,18 +84,21 @@ pub const Flag = struct {
         }
         try w.writeAll(flag.name);
 
-        if (flag.options.kind == .named) {
-            switch (@typeInfo(flag.type)) {
-                .bool, .optional => {
-                    try w.writeAll(", --no-");
-                    try w.writeAll(flag.name);
-                },
-                else => {},
-            }
-            if (flag.options.short) |s| {
-                try w.writeAll(", -");
-                _ = try w.writeByte(s);
-            }
+        switch (flag.options.kind) {
+            .named, .list => {
+                switch (@typeInfo(flag.type)) {
+                    .bool, .optional => {
+                        try w.writeAll(", --no-");
+                        try w.writeAll(flag.name);
+                    },
+                    else => {},
+                }
+                if (flag.options.short) |s| {
+                    try w.writeAll(", -");
+                    _ = try w.writeByte(s);
+                }
+            },
+            .positional => {},
         }
 
         switch (@typeInfo(flag.type)) {
