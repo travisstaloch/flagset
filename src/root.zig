@@ -734,14 +734,16 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
 
         pub fn format(self: @This(), writer: *Writer) !void {
             inline for (flags, 0..) |flag, i| {
-                if (i != 0) try writer.writeByte(' ');
                 const value = if (@field(self.options.ptrs, flag.name)) |ptr|
                     ptr.*
                 else
                     @field(self.parsed, flag.name);
 
+                if (i != 0 and !(flag.options.kind == .list and value.items.len == 0))
+                    try writer.writeByte(' ');
+
                 if (flag.options.kind != .positional) {
-                    try writer.writeAll("--");
+                    if (flag.options.kind == .named) try writer.writeAll("--");
                     switch (@typeInfo(@TypeOf(value))) {
                         .bool => {
                             if (!value) try writer.writeAll("no-");
@@ -752,20 +754,19 @@ pub fn FmtParsed(comptime flags: []const Flag) type {
                                 try writer.writeAll(flag.name);
                                 try writer.writeByte(' ');
                                 try fmtParsedVal(v, writer);
+                            } else if (flag.defaultValue()) |v| {
+                                try writer.writeAll(flag.name);
+                                try writer.writeByte(' ');
+                                try fmtParsedVal(v, writer);
                             } else {
-                                if (flag.defaultValue()) |v| {
-                                    try writer.writeAll(flag.name);
-                                    try writer.writeByte(' ');
-                                    try fmtParsedVal(v, writer);
-                                } else {
-                                    try writer.writeAll("no-");
-                                    try writer.writeAll(flag.name);
-                                }
+                                try writer.writeAll("no-");
+                                try writer.writeAll(flag.name);
                             }
                         },
                         else => if (flag.options.kind == .list) {
                             for (value.items, 0..) |item, j| {
-                                if (j != 0) try writer.writeAll(" --");
+                                if (j != 0) try writer.writeByte(' ');
+                                try writer.writeAll("--");
                                 try writer.writeAll(flag.name);
                                 try writer.writeByte(' ');
                                 try fmtParsedVal(item, writer);

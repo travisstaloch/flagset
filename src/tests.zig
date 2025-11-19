@@ -594,6 +594,21 @@ test "fmtParsed - round trip" {
         })},
     );
 
+    { // don't fmt '--' with no name on empty list
+        var result2 = try flagset.parseFromSlice(
+            &fmt_flagset,
+            testArgs(&.{ "--flag", "--count", "10", "two", "--no-opt-string", "--string", "s", "pos-str" }),
+            .{ .allocator = testing.allocator },
+        );
+        defer result2.deinit(testing.allocator);
+        try testing.expectFmt(
+            \\--flag --count 10 two --no-opt-string --string s pos-str
+        ,
+            "{f}",
+            .{flagset.fmtParsed(&fmt_flagset, result2.parsed, .{})},
+        );
+    }
+
     var buf: [128]u8 = undefined;
     const formatted = try std.fmt.bufPrint(&buf, "exepath {f}", .{flagset.fmtParsed(&fmt_flagset, result.parsed, .{})});
     {
